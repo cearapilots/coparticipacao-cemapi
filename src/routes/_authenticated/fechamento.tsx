@@ -39,6 +39,9 @@ function ClosingPage() {
   const preview = useServerFn(previewMonthClosing);
   const close = useServerFn(closeMonth);
   const composition = useServerFn(getMonthComposition);
+  const generateXlsx = useServerFn(generatePayrollXlsx);
+  const getDownloadUrl = useServerFn(getPayrollExportDownloadUrl);
+  const listExports = useServerFn(listPayrollExports);
 
   const previewMut = useMutation({
     mutationFn: () => preview({ data: { payroll_month: toMonthISO(month) } }),
@@ -54,6 +57,25 @@ function ClosingPage() {
       previewMut.mutate();
     },
     onError: (e: Error) => toast.error(e.message),
+  });
+
+  const xlsxMut = useMutation({
+    mutationFn: async () => {
+      const mode = previewData?.rows?.some((r: any) => r.status === "closed" || r.status === "exported") ? "closed" : "preview";
+      return generateXlsx({ data: { payroll_month: toMonthISO(month), mode } });
+    },
+    onSuccess: (r) => {
+      if (r.warnings?.length) toast.warning(`${r.warnings.length} aviso(s): ${r.warnings.slice(0, 2).join("; ")}`);
+      window.open(r.download_url, "_blank");
+      toast.success(`XLSX gerado: ${r.file_name}`);
+      exportsQuery.refetch();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const exportsQuery = useQuery({
+    queryKey: ["payroll-exports"],
+    queryFn: () => listExports(),
   });
 
   const isClosed = previewData?.rows?.some((r: any) => r.status === "closed" || r.status === "exported");
