@@ -115,7 +115,7 @@ export const closeMonth = createServerFn({ method: "POST" })
     if (exErr) throw exErr;
 
     if (rows.length > 0) {
-      await context.supabase.from("payroll_export_items").insert(
+      const { error: itemsErr } = await context.supabase.from("payroll_export_items").insert(
         rows.map((r) => ({
           payroll_export_id: exportRow.id,
           employee_id: r.employee_id,
@@ -125,12 +125,14 @@ export const closeMonth = createServerFn({ method: "POST" })
           carryover_out_cents: r.carryover_out_cents ?? 0,
         })),
       );
+      if (itemsErr) throw new Error(`Falha ao gravar itens do snapshot: ${itemsErr.message}`);
 
-      await context.supabase
+      const { error: ledUpdErr } = await context.supabase
         .from("payroll_monthly_ledger")
         .update({ status: "closed", closed_at: new Date().toISOString(), export_id: exportRow.id })
         .eq("payroll_month", month)
         .in("id", rows.map((r) => r.id));
+      if (ledUpdErr) throw new Error(`Falha ao marcar ledger como fechado: ${ledUpdErr.message}`);
     }
 
     await logAudit(context.supabase, context.userId, {

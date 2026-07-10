@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { previewMonthClosing, closeMonth, getMonthComposition } from "@/lib/closing.functions";
+import { previewMonthClosing, closeMonth, getMonthComposition, listPayrollExports } from "@/lib/closing.functions";
+import { generatePayrollXlsx, getPayrollExportDownloadUrl } from "@/lib/payroll-exports.functions";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +17,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Info, Lock } from "lucide-react";
+import { Download, Info, Lock } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/fechamento")({
   component: ClosingPage,
@@ -38,6 +39,9 @@ function ClosingPage() {
   const preview = useServerFn(previewMonthClosing);
   const close = useServerFn(closeMonth);
   const composition = useServerFn(getMonthComposition);
+  const generateXlsx = useServerFn(generatePayrollXlsx);
+  const getDownloadUrl = useServerFn(getPayrollExportDownloadUrl);
+  const listExports = useServerFn(listPayrollExports);
 
   const previewMut = useMutation({
     mutationFn: () => preview({ data: { payroll_month: toMonthISO(month) } }),
@@ -53,6 +57,25 @@ function ClosingPage() {
       previewMut.mutate();
     },
     onError: (e: Error) => toast.error(e.message),
+  });
+
+  const xlsxMut = useMutation({
+    mutationFn: async () => {
+      const mode = previewData?.rows?.some((r: any) => r.status === "closed" || r.status === "exported") ? "closed" : "preview";
+      return generateXlsx({ data: { payroll_month: toMonthISO(month), mode } });
+    },
+    onSuccess: (r) => {
+      if (r.warnings?.length) toast.warning(`${r.warnings.length} aviso(s): ${r.warnings.slice(0, 2).join("; ")}`);
+      window.open(r.download_url, "_blank");
+      toast.success(`XLSX gerado: ${r.file_name}`);
+      exportsQuery.refetch();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const exportsQuery = useQuery({
+    queryKey: ["payroll-exports"],
+    queryFn: () => listExports(),
   });
 
   const isClosed = previewData?.rows?.some((r: any) => r.status === "closed" || r.status === "exported");
@@ -81,7 +104,7 @@ function ClosingPage() {
       <div>
         <h1 className="text-2xl font-semibold">Fechamento mensal</h1>
         <p className="text-sm text-muted-foreground">
-          Gere a prévia, revise linha a linha e feche o mês. O XLSX binário será liberado na próxima entrega — nesta o fechamento gera snapshot em <code className="text-xs">payroll_exports</code>.
+          Gere a prévia, revise linha a linha, feche o mês e baixe o XLSX contábil.
         </p>
       </div>
 
@@ -117,7 +140,10 @@ function ClosingPage() {
             </AlertDialog>
           )}
           {isClosed && <Badge variant="default"><Lock className="h-3 w-3 mr-1" />Mês fechado</Badge>}
-          <Button variant="outline" disabled title="Geração de XLSX na próxima entrega">Exportar XLSX (em breve)</Button>
+          <Button variant="outline" onClick={() => xlsxMut.mutate()} disabled={!previewData || xlsxMut.isPending}>
+            <Download className="h-4 w-4 mr-2" />
+            {xlsxMut.isPending ? "Gerando..." : isClosed ? "Baixar XLSX" : "Baixar XLSX (prévia)"}
+          </Button>
         </CardContent>
       </Card>
 
@@ -248,6 +274,46 @@ function ClosingPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Exportações recentes</CardTitle></CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader><TableRow>
+              <TableHead>Mês</TableHead>
+              <TableHead>Gerado em</TableHead>
+              <TableHead className="text-right">Colaboradores</TableHead>
+              <TableHead className="text-right">Total</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead></TableHead>
+            </TableRow></TableHeader>
+            <TableBody>
+              {(exportsQuery.data ?? []).length === 0 && (
+                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-4">Nenhuma exportação registrada</TableCell></TableRow>
+              )}
+              {(exportsQuery.data ?? []).map((e: any) => (
+                <TableRow key={e.id}>
+                  <TableCell>{formatMonthPtBR(e.payroll_month)}</TableCell>
+                  <TableCell className="text-xs">{new Date(e.generated_at).toLocaleString("pt-BR")}</TableCell>
+                  <TableCell className="text-right">{e.total_employees ?? "—"}</TableCell>
+                  <TableCell className="text-right">{e.total_amount_cents != null ? centsToMoney(e.total_amount_cents) : "—"}</TableCell>
+                  <TableCell><Badge variant="outline">{e.status}</Badge></TableCell>
+                  <TableCell className="text-right">
+                    {e.file_storage_path ? (
+                      <Button variant="ghost" size="sm" onClick={async () => {
+                        try {
+                          const r = await getDownloadUrl({ data: { export_id: e.id } });
+                          window.open(r.download_url, "_blank");
+                        } catch (err) { toast.error((err as Error).message); }
+                      }}><Download className="h-4 w-4 mr-1" />Baixar</Button>
+                    ) : <span className="text-xs text-muted-foreground">sem arquivo</span>}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   );
 }
