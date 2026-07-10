@@ -77,10 +77,33 @@ function ImportsPage() {
     }
   }
 
-  async function submit(opts: { confirmReprocess?: boolean } = {}) {
+  const competenceISO = competence ? toMonthISO(competence) : "";
+  const markerISO = marker?.first_unimed_import_month ?? "2026-08-01";
+  const isBeforeMarker = !!competenceISO && competenceISO < markerISO;
+
+  async function submit(opts: { confirmReprocess?: boolean; overrideReason?: string } = {}) {
     const rawText = extracted || pastedText;
     if (!rawText.trim()) { toast.error("Nenhum texto para processar."); return; }
     if (!competence) { toast.error("Escolha a competência operacional."); return; }
+
+    // Bloqueio de competência anterior ao marco operacional
+    if (isBeforeMarker && !opts.overrideReason) {
+      if (!isAdmin) {
+        toast.error(
+          "Esta competência já foi coberta pela carga inicial de saldo devedor. Importação bloqueada para RH — solicite a um administrador.",
+        );
+        return;
+      }
+      const reason = window.prompt(
+        `Atenção: a competência ${competenceISO.substring(0, 7)} é anterior ao marco operacional (${markerISO.substring(0, 7)}) e já foi coberta pela carga inicial de saldo devedor.\n\nImportar aqui pode DUPLICAR valores.\n\nInforme uma justificativa (mín. 10 caracteres) para prosseguir:`,
+        "",
+      );
+      if (!reason || reason.trim().length < 10) {
+        toast.error("Justificativa obrigatória (mínimo 10 caracteres). Importação cancelada.");
+        return;
+      }
+      return submit({ ...opts, overrideReason: reason.trim() });
+    }
 
     setBusy(true);
     try {
@@ -91,7 +114,6 @@ function ImportsPage() {
       if (file) {
         hash = await sha256Hex(file);
         fileName = file.name;
-        // Upload em bucket privado
         const path = `${new Date().toISOString().slice(0, 7)}/${hash}-${encodeURIComponent(file.name)}`;
         const up = await supabase.storage.from("unimed-pdfs").upload(path, file, {
           upsert: true, contentType: file.type || "application/pdf",
@@ -102,7 +124,6 @@ function ImportsPage() {
           storagePath = up.data?.path ?? null;
         }
       } else {
-        // hash do texto colado
         const enc = new TextEncoder().encode(rawText);
         const h = await crypto.subtle.digest("SHA-256", enc);
         hash = Array.from(new Uint8Array(h)).map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -115,6 +136,7 @@ function ImportsPage() {
         source_file_storage_path: storagePath,
         competence_month: toMonthISO(competence),
         confirm_reprocess: opts.confirmReprocess,
+        pre_marker_override_reason: opts.overrideReason,
       }});
 
       if (res.duplicate) {
@@ -122,7 +144,7 @@ function ImportsPage() {
           ? "Este arquivo já foi importado antes."
           : "Já existe um lote confirmado para esta competência.";
         if (confirm(`${reason}\nDeseja reprocessar mesmo assim?`)) {
-          await submit({ confirmReprocess: true });
+          await submit({ ...opts, confirmReprocess: true });
         }
         return;
       }
@@ -136,6 +158,7 @@ function ImportsPage() {
       setBusy(false);
     }
   }
+
 
   return (
     <div className="space-y-6 max-w-5xl">
