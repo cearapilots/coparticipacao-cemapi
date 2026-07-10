@@ -314,24 +314,31 @@ export const confirmImportBatch = createServerFn({ method: "POST" })
     const { logAudit } = await import("./audit.server");
     const { recalculateEmployeeLedger, getLastClosedMonth } = await import("./ledger.server");
 
+    const FRIENDLY = "Não foi possível confirmar o lote. Nenhum lote foi marcado como confirmado. Revise o erro e tente novamente.";
+    const fail = (detail: string): never => {
+      throw new Error(`${FRIENDLY} Detalhe: ${detail}`);
+    };
+
+    // 1) Carrega lote
     const { data: batch, error: bErr } = await context.supabase
       .from("import_batches")
       .select("*")
       .eq("id", data.batch_id)
       .maybeSingle();
-    if (bErr) throw bErr;
-    if (!batch) throw new Error("Lote não encontrado");
-    if (batch.status === "confirmed") throw new Error("Lote já foi confirmado");
-    if (batch.status === "cancelled") throw new Error("Lote foi cancelado");
-    if (!batch.competence_month) throw new Error("Lote sem competência definida");
+    if (bErr) fail(`falha ao carregar lote (${bErr.message})`);
+    if (!batch) throw new Error("Lote não encontrado.");
+    if (batch.status === "confirmed") throw new Error("Este lote já foi confirmado.");
+    if (batch.status === "cancelled") throw new Error("Este lote foi cancelado e não pode ser confirmado.");
+    if (!batch.competence_month) throw new Error("Este lote não possui competência definida.");
 
+    // 2) Carrega itens
     const { data: items, error: iErr } = await context.supabase
       .from("import_items")
       .select("*")
       .eq("import_batch_id", data.batch_id);
-    if (iErr) throw iErr;
+    if (iErr) fail(`falha ao carregar itens (${iErr.message})`);
 
-    // Validação: nada pode estar not_found ou needs_review pendente
+    // 3) Validação de pendências
     const pending = (items ?? []).filter(
       (it) =>
         it.review_status !== "ignored" &&
@@ -341,7 +348,7 @@ export const confirmImportBatch = createServerFn({ method: "POST" })
     );
     if (pending.length > 0) {
       throw new Error(
-        `Existem ${pending.length} item(ns) pendentes de revisão. Associe ou ignore antes de confirmar.`,
+        `Este lote ainda possui ${pending.length} item(ns) sem associação ou revisão. Associe o colaborador ou marque como ignorado antes de confirmar.`,
       );
     }
 
@@ -357,6 +364,13 @@ export const confirmImportBatch = createServerFn({ method: "POST" })
     const employeesAffected = new Set<string>();
     const earliestByEmp = new Map<string, string>();
 
+    // 4) Loop de writes — cada etapa checa erro explicitamente.
+    // LIMITAÇÃO CONHECIDA: o driver Supabase JS não expõe transação
+    // multi-statement. Se um item falhar após inserções anteriores, o lote
+    // NÃO é marcado como confirmed — o operador pode corrigir e reprocessar.
+    // Registros parcialmente criados ficam vinculados via
+    // monthly_usage.source_reference_id → import_items.id e podem ser
+    // localizados por auditoria. Uma RPC transacional pode ser adicionada no futuro.
     for (const it of toProcess) {
       const empId = it.matched_employee_id!;
       const amount = it.amount_cents!;
@@ -364,7 +378,7 @@ export const confirmImportBatch = createServerFn({ method: "POST" })
       const plan = generateInstallmentPlan(competence, amount, thresholds);
       const anyInClosed = lastClosed && plan.items.some((p) => p.dueMonth <= lastClosed);
 
-      // 1) monthly_usage
+      // 4a) monthly_usage
       const { data: usage, error: uErr } = await context.supabase
         .from("monthly_usage")
         .insert({
@@ -378,16 +392,15 @@ export const confirmImportBatch = createServerFn({ method: "POST" })
         })
         .select("id")
         .single();
-      if (uErr) throw uErr;
+      if (uErr || !usage) fail(`falha ao criar lançamento para item ${it.id.substring(0, 8)} (${uErr?.message ?? "sem retorno"})`);
 
-      let planRow;
       if (anyInClosed && lastClosed) {
         const nextOpen = addMonths(lastClosed, 1);
         const { data: adj, error: pErr } = await context.supabase
           .from("installment_plans")
           .insert({
             employee_id: empId,
-            monthly_usage_id: usage.id,
+            monthly_usage_id: usage!.id,
             source_type: "adjustment",
             total_amount_cents: amount,
             installment_count: 1,
@@ -398,10 +411,10 @@ export const confirmImportBatch = createServerFn({ method: "POST" })
           })
           .select("id")
           .single();
-        if (pErr) throw pErr;
-        planRow = adj;
-        await context.supabase.from("installment_plan_items").insert({
-          installment_plan_id: adj.id,
+        if (pErr || !adj) fail(`falha ao criar plano de ajuste retroativo (${pErr?.message ?? "sem retorno"})`);
+
+        const { error: piErr } = await context.supabase.from("installment_plan_items").insert({
+          installment_plan_id: adj!.id,
           employee_id: empId,
           competence_month: competence,
           due_month: nextOpen,
@@ -410,6 +423,8 @@ export const confirmImportBatch = createServerFn({ method: "POST" })
           scheduled_amount_cents: amount,
           status: "projected",
         });
+        if (piErr) fail(`falha ao gravar parcela de ajuste (${piErr.message})`);
+
         const cur = earliestByEmp.get(empId);
         if (!cur || nextOpen < cur) earliestByEmp.set(empId, nextOpen);
       } else {
@@ -417,7 +432,7 @@ export const confirmImportBatch = createServerFn({ method: "POST" })
           .from("installment_plans")
           .insert({
             employee_id: empId,
-            monthly_usage_id: usage.id,
+            monthly_usage_id: usage!.id,
             source_type: "monthly_usage",
             total_amount_cents: amount,
             installment_count: plan.installmentCount,
@@ -427,11 +442,11 @@ export const confirmImportBatch = createServerFn({ method: "POST" })
           })
           .select("id")
           .single();
-        if (pErr) throw pErr;
-        planRow = p;
-        await context.supabase.from("installment_plan_items").insert(
+        if (pErr || !p) fail(`falha ao criar plano de parcelamento (${pErr?.message ?? "sem retorno"})`);
+
+        const { error: piErr } = await context.supabase.from("installment_plan_items").insert(
           plan.items.map((pit) => ({
-            installment_plan_id: p.id,
+            installment_plan_id: p!.id,
             employee_id: empId,
             competence_month: competence,
             due_month: pit.dueMonth,
@@ -441,24 +456,31 @@ export const confirmImportBatch = createServerFn({ method: "POST" })
             status: "projected",
           })),
         );
+        if (piErr) fail(`falha ao gravar parcelas (${piErr.message})`);
+
         const cur = earliestByEmp.get(empId);
         if (!cur || plan.firstDueMonth < cur) earliestByEmp.set(empId, plan.firstDueMonth);
       }
-      void planRow;
       employeesAffected.add(empId);
     }
 
-    // Recalcula ledger de cada colaborador impactado
+    // 5) Recalcula ledger — se falhar, o lote continua NÃO confirmado.
     for (const [empId, fromMonth] of earliestByEmp) {
-      await recalculateEmployeeLedger(context.supabase, empId, fromMonth);
+      try {
+        await recalculateEmployeeLedger(context.supabase, empId, fromMonth);
+      } catch (e) {
+        fail(`falha ao recalcular ledger de ${empId.substring(0, 8)} (${(e as Error).message})`);
+      }
     }
 
-    // Marca lote como confirmado
-    await context.supabase
+    // 6) Marca lote como confirmado — última operação antes da auditoria.
+    const { error: updErr } = await context.supabase
       .from("import_batches")
       .update({ status: "confirmed" })
       .eq("id", batch.id);
+    if (updErr) fail(`falha ao marcar lote como confirmado (${updErr.message})`);
 
+    // 7) Auditoria — somente após todas as etapas acima terem sucesso.
     await logAudit(context.supabase, context.userId, {
       action: "import.batch.confirm",
       entityType: "import_batch",
