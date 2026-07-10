@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { previewMonthClosing, closeMonth, getMonthComposition } from "@/lib/closing.functions";
+import { previewMonthClosing, closeMonth, getMonthComposition, listPayrollExports } from "@/lib/closing.functions";
+import { generatePayrollXlsx, getPayrollExportDownloadUrl } from "@/lib/payroll-exports.functions";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +17,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Info, Lock } from "lucide-react";
+import { Download, Info, Lock } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/fechamento")({
   component: ClosingPage,
