@@ -10,6 +10,7 @@ import {
   ClipboardCheck,
   Settings,
   LogOut,
+  Upload,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated")({
@@ -25,9 +26,10 @@ export const Route = createFileRoute("/_authenticated")({
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/colaboradores", label: "Colaboradores", icon: Users },
-  { to: "/lancamentos/novo", label: "Novo lançamento", icon: FilePlus },
+  { to: "/lancamentos", label: "Lançamentos", icon: FilePlus },
   { to: "/saldo-inicial", label: "Saldo inicial", icon: Wallet },
   { to: "/fechamento", label: "Fechamento mensal", icon: ClipboardCheck },
+  { to: "/importacoes", label: "Importações", icon: Upload },
   { to: "/configuracoes", label: "Configurações", icon: Settings },
 ] as const;
 
