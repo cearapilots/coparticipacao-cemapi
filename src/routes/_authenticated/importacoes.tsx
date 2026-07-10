@@ -170,6 +170,19 @@ function ImportsPage() {
         </p>
       </div>
 
+      <Alert>
+        <AlertTriangle className="h-4 w-4" />
+        <AlertTitle>Marco operacional: importações a partir de {markerISO.substring(0, 7)}</AlertTitle>
+        <AlertDescription>
+          Os valores anteriores a agosto/2026 foram carregados como <strong>saldo inicial</strong>
+          {marker?.opening_balance_source_note ? ` (${marker.opening_balance_source_note})` : ""}.
+          A partir de 08/2026, os arquivos da UNIMED devem ser importados mensalmente. Para cada
+          titular, o sistema usa o valor de <strong>Total da Família</strong> como valor novo
+          mensal de coparticipação — procedimentos individuais e Ref. Produção não são usados
+          como competência principal.
+        </AlertDescription>
+      </Alert>
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2"><Upload className="h-4 w-4" /> Novo lote</CardTitle>
