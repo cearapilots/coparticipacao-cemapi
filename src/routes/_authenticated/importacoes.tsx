@@ -16,7 +16,8 @@ import { toast } from "sonner";
 import { centsToMoney } from "@/lib/calc/money";
 import { formatMonthPtBR, toMonthISO } from "@/lib/calc/date";
 import { extractPdfText, sha256Hex } from "@/lib/pdf-client";
-import { createImportBatchFromPdf, listImportBatches } from "@/lib/imports.functions";
+import { createImportBatchFromPdf, listImportBatches, getImportMarker } from "@/lib/imports.functions";
+import { getMyRoles } from "@/lib/settings.functions";
 
 export const Route = createFileRoute("/_authenticated/importacoes")({
   component: ImportsPage,
@@ -39,8 +40,13 @@ function ImportsPage() {
   const qc = useQueryClient();
   const listFn = useServerFn(listImportBatches);
   const createFn = useServerFn(createImportBatchFromPdf);
+  const markerFn = useServerFn(getImportMarker);
+  const rolesFn = useServerFn(getMyRoles);
 
   const { data: batches = [] } = useQuery({ queryKey: ["import-batches"], queryFn: () => listFn() });
+  const { data: marker } = useQuery({ queryKey: ["import-marker"], queryFn: () => markerFn() });
+  const { data: myRoles = [] } = useQuery({ queryKey: ["my-roles"], queryFn: () => rolesFn() });
+  const isAdmin = myRoles.includes("admin");
 
   const [competence, setCompetence] = useState(() => {
     const d = new Date();
@@ -71,10 +77,33 @@ function ImportsPage() {
     }
   }
 
-  async function submit(opts: { confirmReprocess?: boolean } = {}) {
+  const competenceISO = competence ? toMonthISO(competence) : "";
+  const markerISO = marker?.first_unimed_import_month ?? "2026-08-01";
+  const isBeforeMarker = !!competenceISO && competenceISO < markerISO;
+
+  async function submit(opts: { confirmReprocess?: boolean; overrideReason?: string } = {}) {
     const rawText = extracted || pastedText;
     if (!rawText.trim()) { toast.error("Nenhum texto para processar."); return; }
     if (!competence) { toast.error("Escolha a competência operacional."); return; }
+
+    // Bloqueio de competência anterior ao marco operacional
+    if (isBeforeMarker && !opts.overrideReason) {
+      if (!isAdmin) {
+        toast.error(
+          "Esta competência já foi coberta pela carga inicial de saldo devedor. Importação bloqueada para RH — solicite a um administrador.",
+        );
+        return;
+      }
+      const reason = window.prompt(
+        `Atenção: a competência ${competenceISO.substring(0, 7)} é anterior ao marco operacional (${markerISO.substring(0, 7)}) e já foi coberta pela carga inicial de saldo devedor.\n\nImportar aqui pode DUPLICAR valores.\n\nInforme uma justificativa (mín. 10 caracteres) para prosseguir:`,
+        "",
+      );
+      if (!reason || reason.trim().length < 10) {
+        toast.error("Justificativa obrigatória (mínimo 10 caracteres). Importação cancelada.");
+        return;
+      }
+      return submit({ ...opts, overrideReason: reason.trim() });
+    }
 
     setBusy(true);
     try {
@@ -85,7 +114,6 @@ function ImportsPage() {
       if (file) {
         hash = await sha256Hex(file);
         fileName = file.name;
-        // Upload em bucket privado
         const path = `${new Date().toISOString().slice(0, 7)}/${hash}-${encodeURIComponent(file.name)}`;
         const up = await supabase.storage.from("unimed-pdfs").upload(path, file, {
           upsert: true, contentType: file.type || "application/pdf",
@@ -96,7 +124,6 @@ function ImportsPage() {
           storagePath = up.data?.path ?? null;
         }
       } else {
-        // hash do texto colado
         const enc = new TextEncoder().encode(rawText);
         const h = await crypto.subtle.digest("SHA-256", enc);
         hash = Array.from(new Uint8Array(h)).map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -109,6 +136,7 @@ function ImportsPage() {
         source_file_storage_path: storagePath,
         competence_month: toMonthISO(competence),
         confirm_reprocess: opts.confirmReprocess,
+        pre_marker_override_reason: opts.overrideReason,
       }});
 
       if (res.duplicate) {
@@ -116,7 +144,7 @@ function ImportsPage() {
           ? "Este arquivo já foi importado antes."
           : "Já existe um lote confirmado para esta competência.";
         if (confirm(`${reason}\nDeseja reprocessar mesmo assim?`)) {
-          await submit({ confirmReprocess: true });
+          await submit({ ...opts, confirmReprocess: true });
         }
         return;
       }
@@ -131,6 +159,7 @@ function ImportsPage() {
     }
   }
 
+
   return (
     <div className="space-y-6 max-w-5xl">
       <div>
@@ -140,6 +169,19 @@ function ImportsPage() {
           faz o matching com colaboradores e envia para revisão manual antes de gerar lançamentos.
         </p>
       </div>
+
+      <Alert>
+        <AlertTriangle className="h-4 w-4" />
+        <AlertTitle>Marco operacional: importações a partir de {markerISO.substring(0, 7)}</AlertTitle>
+        <AlertDescription>
+          Os valores anteriores a agosto/2026 foram carregados como <strong>saldo inicial</strong>
+          {marker?.opening_balance_source_note ? ` (${marker.opening_balance_source_note})` : ""}.
+          A partir de 08/2026, os arquivos da UNIMED devem ser importados mensalmente. Para cada
+          titular, o sistema usa o valor de <strong>Total da Família</strong> como valor novo
+          mensal de coparticipação — procedimentos individuais e Ref. Produção não são usados
+          como competência principal.
+        </AlertDescription>
+      </Alert>
 
       <Card>
         <CardHeader>
@@ -173,10 +215,28 @@ function ImportsPage() {
             <Button variant="outline" onClick={handleExtract} disabled={!file || busy}>
               <FileText className="h-4 w-4 mr-2" /> Extrair texto do PDF
             </Button>
-            <Button onClick={() => submit()} disabled={busy || (!extracted && !pastedText.trim())}>
+            <Button
+              onClick={() => submit()}
+              disabled={busy || (!extracted && !pastedText.trim()) || (isBeforeMarker && !isAdmin)}
+            >
               {busy ? "Processando..." : "Processar e criar lote"}
             </Button>
           </div>
+
+          {isBeforeMarker && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Competência anterior ao marco operacional</AlertTitle>
+              <AlertDescription>
+                Este mês ({competenceISO.substring(0, 7)}) já está coberto pela carga inicial
+                de saldo devedor. Importar este arquivo pode duplicar valores. A primeira
+                importação operacional da UNIMED deve ser a partir de {markerISO.substring(0, 7)}.
+                {isAdmin
+                  ? " Como administrador, você pode prosseguir informando uma justificativa obrigatória."
+                  : " Importação bloqueada para usuários RH — solicite a um administrador."}
+              </AlertDescription>
+            </Alert>
+          )}
 
           {extracted && (
             <Alert>
