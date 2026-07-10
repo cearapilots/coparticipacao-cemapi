@@ -274,6 +274,46 @@ function ClosingPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Exportações recentes</CardTitle></CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader><TableRow>
+              <TableHead>Mês</TableHead>
+              <TableHead>Gerado em</TableHead>
+              <TableHead className="text-right">Colaboradores</TableHead>
+              <TableHead className="text-right">Total</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead></TableHead>
+            </TableRow></TableHeader>
+            <TableBody>
+              {(exportsQuery.data ?? []).length === 0 && (
+                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-4">Nenhuma exportação registrada</TableCell></TableRow>
+              )}
+              {(exportsQuery.data ?? []).map((e: any) => (
+                <TableRow key={e.id}>
+                  <TableCell>{formatMonthPtBR(e.payroll_month)}</TableCell>
+                  <TableCell className="text-xs">{new Date(e.generated_at).toLocaleString("pt-BR")}</TableCell>
+                  <TableCell className="text-right">{e.total_employees ?? "—"}</TableCell>
+                  <TableCell className="text-right">{e.total_amount_cents != null ? centsToMoney(e.total_amount_cents) : "—"}</TableCell>
+                  <TableCell><Badge variant="outline">{e.status}</Badge></TableCell>
+                  <TableCell className="text-right">
+                    {e.file_storage_path ? (
+                      <Button variant="ghost" size="sm" onClick={async () => {
+                        try {
+                          const r = await getDownloadUrl({ data: { export_id: e.id } });
+                          window.open(r.download_url, "_blank");
+                        } catch (err) { toast.error((err as Error).message); }
+                      }}><Download className="h-4 w-4 mr-1" />Baixar</Button>
+                    ) : <span className="text-xs text-muted-foreground">sem arquivo</span>}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   );
 }
