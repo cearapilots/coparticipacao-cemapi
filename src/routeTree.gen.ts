@@ -19,6 +19,7 @@ import { Route as AuthenticatedConfiguracoesRouteImport } from './routes/_authen
 import { Route as AuthenticatedLancamentosIndexRouteImport } from './routes/_authenticated/lancamentos.index'
 import { Route as AuthenticatedColaboradoresIndexRouteImport } from './routes/_authenticated/colaboradores.index'
 import { Route as AuthenticatedLancamentosNovoRouteImport } from './routes/_authenticated/lancamentos.novo'
+import { Route as AuthenticatedImportacoesIdRouteImport } from './routes/_authenticated/importacoes.$id'
 import { Route as AuthenticatedColaboradoresIdRouteImport } from './routes/_authenticated/colaboradores.$id'
 
 const AuthRoute = AuthRouteImport.update({
@@ -76,6 +77,12 @@ const AuthenticatedLancamentosNovoRoute =
     path: '/lancamentos/novo',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedImportacoesIdRoute =
+  AuthenticatedImportacoesIdRouteImport.update({
+    id: '/$id',
+    path: '/$id',
+    getParentRoute: () => AuthenticatedImportacoesRoute,
+  } as any)
 const AuthenticatedColaboradoresIdRoute =
   AuthenticatedColaboradoresIdRouteImport.update({
     id: '/colaboradores/$id',
@@ -88,9 +95,10 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/fechamento': typeof AuthenticatedFechamentoRoute
-  '/importacoes': typeof AuthenticatedImportacoesRoute
+  '/importacoes': typeof AuthenticatedImportacoesRouteWithChildren
   '/saldo-inicial': typeof AuthenticatedSaldoInicialRoute
   '/colaboradores/$id': typeof AuthenticatedColaboradoresIdRoute
+  '/importacoes/$id': typeof AuthenticatedImportacoesIdRoute
   '/lancamentos/novo': typeof AuthenticatedLancamentosNovoRoute
   '/colaboradores/': typeof AuthenticatedColaboradoresIndexRoute
   '/lancamentos/': typeof AuthenticatedLancamentosIndexRoute
@@ -99,10 +107,11 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/fechamento': typeof AuthenticatedFechamentoRoute
-  '/importacoes': typeof AuthenticatedImportacoesRoute
+  '/importacoes': typeof AuthenticatedImportacoesRouteWithChildren
   '/saldo-inicial': typeof AuthenticatedSaldoInicialRoute
   '/': typeof AuthenticatedIndexRoute
   '/colaboradores/$id': typeof AuthenticatedColaboradoresIdRoute
+  '/importacoes/$id': typeof AuthenticatedImportacoesIdRoute
   '/lancamentos/novo': typeof AuthenticatedLancamentosNovoRoute
   '/colaboradores': typeof AuthenticatedColaboradoresIndexRoute
   '/lancamentos': typeof AuthenticatedLancamentosIndexRoute
@@ -113,10 +122,11 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/_authenticated/fechamento': typeof AuthenticatedFechamentoRoute
-  '/_authenticated/importacoes': typeof AuthenticatedImportacoesRoute
+  '/_authenticated/importacoes': typeof AuthenticatedImportacoesRouteWithChildren
   '/_authenticated/saldo-inicial': typeof AuthenticatedSaldoInicialRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/colaboradores/$id': typeof AuthenticatedColaboradoresIdRoute
+  '/_authenticated/importacoes/$id': typeof AuthenticatedImportacoesIdRoute
   '/_authenticated/lancamentos/novo': typeof AuthenticatedLancamentosNovoRoute
   '/_authenticated/colaboradores/': typeof AuthenticatedColaboradoresIndexRoute
   '/_authenticated/lancamentos/': typeof AuthenticatedLancamentosIndexRoute
@@ -131,6 +141,7 @@ export interface FileRouteTypes {
     | '/importacoes'
     | '/saldo-inicial'
     | '/colaboradores/$id'
+    | '/importacoes/$id'
     | '/lancamentos/novo'
     | '/colaboradores/'
     | '/lancamentos/'
@@ -143,6 +154,7 @@ export interface FileRouteTypes {
     | '/saldo-inicial'
     | '/'
     | '/colaboradores/$id'
+    | '/importacoes/$id'
     | '/lancamentos/novo'
     | '/colaboradores'
     | '/lancamentos'
@@ -156,6 +168,7 @@ export interface FileRouteTypes {
     | '/_authenticated/saldo-inicial'
     | '/_authenticated/'
     | '/_authenticated/colaboradores/$id'
+    | '/_authenticated/importacoes/$id'
     | '/_authenticated/lancamentos/novo'
     | '/_authenticated/colaboradores/'
     | '/_authenticated/lancamentos/'
@@ -238,6 +251,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedLancamentosNovoRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/importacoes/$id': {
+      id: '/_authenticated/importacoes/$id'
+      path: '/$id'
+      fullPath: '/importacoes/$id'
+      preLoaderRoute: typeof AuthenticatedImportacoesIdRouteImport
+      parentRoute: typeof AuthenticatedImportacoesRoute
+    }
     '/_authenticated/colaboradores/$id': {
       id: '/_authenticated/colaboradores/$id'
       path: '/colaboradores/$id'
@@ -248,10 +268,24 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AuthenticatedImportacoesRouteChildren {
+  AuthenticatedImportacoesIdRoute: typeof AuthenticatedImportacoesIdRoute
+}
+
+const AuthenticatedImportacoesRouteChildren: AuthenticatedImportacoesRouteChildren =
+  {
+    AuthenticatedImportacoesIdRoute: AuthenticatedImportacoesIdRoute,
+  }
+
+const AuthenticatedImportacoesRouteWithChildren =
+  AuthenticatedImportacoesRoute._addFileChildren(
+    AuthenticatedImportacoesRouteChildren,
+  )
+
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedConfiguracoesRoute: typeof AuthenticatedConfiguracoesRoute
   AuthenticatedFechamentoRoute: typeof AuthenticatedFechamentoRoute
-  AuthenticatedImportacoesRoute: typeof AuthenticatedImportacoesRoute
+  AuthenticatedImportacoesRoute: typeof AuthenticatedImportacoesRouteWithChildren
   AuthenticatedSaldoInicialRoute: typeof AuthenticatedSaldoInicialRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedColaboradoresIdRoute: typeof AuthenticatedColaboradoresIdRoute
@@ -263,7 +297,7 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedConfiguracoesRoute: AuthenticatedConfiguracoesRoute,
   AuthenticatedFechamentoRoute: AuthenticatedFechamentoRoute,
-  AuthenticatedImportacoesRoute: AuthenticatedImportacoesRoute,
+  AuthenticatedImportacoesRoute: AuthenticatedImportacoesRouteWithChildren,
   AuthenticatedSaldoInicialRoute: AuthenticatedSaldoInicialRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedColaboradoresIdRoute: AuthenticatedColaboradoresIdRoute,
