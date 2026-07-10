@@ -175,7 +175,7 @@ export type Database = {
           source_type: string
           status: string
           total_amount_cents: number | null
-          total_cobrado_empresa_cents: number | null
+          total_charged_company_cents: number | null
           total_items: number | null
           updated_at: string
           uploaded_at: string
@@ -195,7 +195,7 @@ export type Database = {
           source_type?: string
           status?: string
           total_amount_cents?: number | null
-          total_cobrado_empresa_cents?: number | null
+          total_charged_company_cents?: number | null
           total_items?: number | null
           updated_at?: string
           uploaded_at?: string
@@ -215,7 +215,7 @@ export type Database = {
           source_type?: string
           status?: string
           total_amount_cents?: number | null
-          total_cobrado_empresa_cents?: number | null
+          total_charged_company_cents?: number | null
           total_items?: number | null
           updated_at?: string
           uploaded_at?: string
