@@ -16,6 +16,7 @@ import { Route as AuthenticatedSaldoInicialRouteImport } from './routes/_authent
 import { Route as AuthenticatedImportacoesRouteImport } from './routes/_authenticated/importacoes'
 import { Route as AuthenticatedFechamentoRouteImport } from './routes/_authenticated/fechamento'
 import { Route as AuthenticatedConfiguracoesRouteImport } from './routes/_authenticated/configuracoes'
+import { Route as AuthenticatedLancamentosIndexRouteImport } from './routes/_authenticated/lancamentos.index'
 import { Route as AuthenticatedColaboradoresIndexRouteImport } from './routes/_authenticated/colaboradores.index'
 import { Route as AuthenticatedLancamentosNovoRouteImport } from './routes/_authenticated/lancamentos.novo'
 import { Route as AuthenticatedColaboradoresIdRouteImport } from './routes/_authenticated/colaboradores.$id'
@@ -57,6 +58,12 @@ const AuthenticatedConfiguracoesRoute =
     path: '/configuracoes',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedLancamentosIndexRoute =
+  AuthenticatedLancamentosIndexRouteImport.update({
+    id: '/lancamentos/',
+    path: '/lancamentos/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedColaboradoresIndexRoute =
   AuthenticatedColaboradoresIndexRouteImport.update({
     id: '/colaboradores/',
@@ -86,6 +93,7 @@ export interface FileRoutesByFullPath {
   '/colaboradores/$id': typeof AuthenticatedColaboradoresIdRoute
   '/lancamentos/novo': typeof AuthenticatedLancamentosNovoRoute
   '/colaboradores/': typeof AuthenticatedColaboradoresIndexRoute
+  '/lancamentos/': typeof AuthenticatedLancamentosIndexRoute
 }
 export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
@@ -97,6 +105,7 @@ export interface FileRoutesByTo {
   '/colaboradores/$id': typeof AuthenticatedColaboradoresIdRoute
   '/lancamentos/novo': typeof AuthenticatedLancamentosNovoRoute
   '/colaboradores': typeof AuthenticatedColaboradoresIndexRoute
+  '/lancamentos': typeof AuthenticatedLancamentosIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -110,6 +119,7 @@ export interface FileRoutesById {
   '/_authenticated/colaboradores/$id': typeof AuthenticatedColaboradoresIdRoute
   '/_authenticated/lancamentos/novo': typeof AuthenticatedLancamentosNovoRoute
   '/_authenticated/colaboradores/': typeof AuthenticatedColaboradoresIndexRoute
+  '/_authenticated/lancamentos/': typeof AuthenticatedLancamentosIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -123,6 +133,7 @@ export interface FileRouteTypes {
     | '/colaboradores/$id'
     | '/lancamentos/novo'
     | '/colaboradores/'
+    | '/lancamentos/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/auth'
@@ -134,6 +145,7 @@ export interface FileRouteTypes {
     | '/colaboradores/$id'
     | '/lancamentos/novo'
     | '/colaboradores'
+    | '/lancamentos'
   id:
     | '__root__'
     | '/_authenticated'
@@ -146,6 +158,7 @@ export interface FileRouteTypes {
     | '/_authenticated/colaboradores/$id'
     | '/_authenticated/lancamentos/novo'
     | '/_authenticated/colaboradores/'
+    | '/_authenticated/lancamentos/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -204,6 +217,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedConfiguracoesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/lancamentos/': {
+      id: '/_authenticated/lancamentos/'
+      path: '/lancamentos'
+      fullPath: '/lancamentos/'
+      preLoaderRoute: typeof AuthenticatedLancamentosIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/colaboradores/': {
       id: '/_authenticated/colaboradores/'
       path: '/colaboradores'
@@ -237,6 +257,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedColaboradoresIdRoute: typeof AuthenticatedColaboradoresIdRoute
   AuthenticatedLancamentosNovoRoute: typeof AuthenticatedLancamentosNovoRoute
   AuthenticatedColaboradoresIndexRoute: typeof AuthenticatedColaboradoresIndexRoute
+  AuthenticatedLancamentosIndexRoute: typeof AuthenticatedLancamentosIndexRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
@@ -248,6 +269,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedColaboradoresIdRoute: AuthenticatedColaboradoresIdRoute,
   AuthenticatedLancamentosNovoRoute: AuthenticatedLancamentosNovoRoute,
   AuthenticatedColaboradoresIndexRoute: AuthenticatedColaboradoresIndexRoute,
+  AuthenticatedLancamentosIndexRoute: AuthenticatedLancamentosIndexRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
