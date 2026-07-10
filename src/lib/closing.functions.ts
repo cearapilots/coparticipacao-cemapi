@@ -155,3 +155,52 @@ export const listPayrollExports = createServerFn({ method: "GET" })
     if (error) throw error;
     return data ?? [];
   });
+
+/**
+ * Composição do valor do mês para um colaborador: quais parcelas somam o valor.
+ */
+export const getMonthComposition = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({
+    employee_id: z.string().uuid(),
+    payroll_month: z.string(),
+  }).parse(d))
+  .handler(async ({ context, data }) => {
+    const month = toMonthISO(data.payroll_month);
+    const [itemsRes, ledgerRes, employeeRes] = await Promise.all([
+      context.supabase
+        .from("installment_plan_items")
+        .select("id, competence_month, due_month, installment_number, installment_count, scheduled_amount_cents, installment_plans(source_type, notes)")
+        .eq("employee_id", data.employee_id)
+        .eq("due_month", month)
+        .order("competence_month"),
+      context.supabase
+        .from("payroll_monthly_ledger")
+        .select("*")
+        .eq("employee_id", data.employee_id)
+        .eq("payroll_month", month)
+        .maybeSingle(),
+      context.supabase
+        .from("employees")
+        .select("id, full_name, payroll_code")
+        .eq("id", data.employee_id)
+        .maybeSingle(),
+    ]);
+    return {
+      month,
+      employee: employeeRes.data,
+      ledger: ledgerRes.data,
+      items: itemsRes.data ?? [],
+    };
+  });
+
+export const listRecentUsages = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data } = await context.supabase
+      .from("monthly_usage")
+      .select("id, employee_id, competence_month, amount_cents, source_type, status, notes, created_at, employees(full_name, payroll_code)")
+      .order("created_at", { ascending: false })
+      .limit(100);
+    return data ?? [];
+  });
