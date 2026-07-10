@@ -6,12 +6,18 @@ import { normalizeName } from "./calc/name";
 export const listEmployees = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { data, error } = await context.supabase
-      .from("employees")
-      .select("*")
-      .order("full_name", { ascending: true });
-    if (error) throw error;
-    return data ?? [];
+    const [empRes, aliasRes] = await Promise.all([
+      context.supabase.from("employees").select("*").order("full_name", { ascending: true }),
+      context.supabase.from("employee_aliases").select("employee_id, alias_name, normalized_alias_name"),
+    ]);
+    if (empRes.error) throw empRes.error;
+    const byEmp = new Map<string, { alias_name: string; normalized_alias_name: string }[]>();
+    for (const a of aliasRes.data ?? []) {
+      const list = byEmp.get(a.employee_id) ?? [];
+      list.push({ alias_name: a.alias_name, normalized_alias_name: a.normalized_alias_name });
+      byEmp.set(a.employee_id, list);
+    }
+    return (empRes.data ?? []).map((e) => ({ ...e, aliases: byEmp.get(e.id) ?? [] }));
   });
 
 export const getEmployee = createServerFn({ method: "GET" })
