@@ -104,7 +104,7 @@ function ClosingPage() {
       <div>
         <h1 className="text-2xl font-semibold">Fechamento mensal</h1>
         <p className="text-sm text-muted-foreground">
-          Gere a prévia, revise linha a linha e feche o mês. O XLSX binário será liberado na próxima entrega — nesta o fechamento gera snapshot em <code className="text-xs">payroll_exports</code>.
+          Gere a prévia, revise linha a linha, feche o mês e baixe o XLSX contábil.
         </p>
       </div>
 
