@@ -20,6 +20,17 @@ dist-ssr
 .wrangler/
 .dev.vars
 
+# Environment variables (never commit secrets)
+.env
+.env.local
+.env.*.local
+
+# Supabase CLI
+supabase/.temp/
+
+# Data export used for one-off migration (contains employee PII)
+/csv/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
