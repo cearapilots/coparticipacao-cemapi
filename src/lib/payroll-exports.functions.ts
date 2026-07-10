@@ -51,7 +51,8 @@ function buildXlsxBuffer(params: {
     amount_cents: number;
   }>;
 }): Uint8Array {
-  const ws: XLSX.WorkSheet = {} as XLSX.WorkSheet;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ws: any = {};
 
   const setCell = (addr: string, value: any, opts?: { type?: "s" | "n"; z?: string }) => {
     if (value === "" || value === null || value === undefined) return;
