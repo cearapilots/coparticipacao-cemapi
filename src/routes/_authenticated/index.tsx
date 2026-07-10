@@ -27,10 +27,12 @@ function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-wrap gap-3 justify-between items-end">
         <div>
           <h1 className="text-2xl font-semibold">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Visão do mês {data ? formatMonthPtBR(data.month) : ""}</p>
+          <p className="text-sm text-muted-foreground">
+            Mês de desconto: {data ? formatMonthPtBR(data.month) : ""}
+          </p>
         </div>
         <div>
           <Label>Mês</Label>
@@ -43,11 +45,11 @@ function Dashboard() {
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
-            <StatCard label="Novo lançado (competência)" value={centsToMoney(data.total_new_cents)} />
-            <StatCard label="Previsto para desconto" value={centsToMoney(data.total_deduct_cents)} />
-            <StatCard label="Remanejado p/ mês seguinte" value={centsToMoney(data.total_carryover_out_cents)} />
-            <StatCard label="Colaboradores c/ desconto" value={String(data.employees_with_deduct)} />
-            <StatCard label="Atingiram o teto" value={String(data.employees_capped)} />
+            <StatCard label="Valor novo lançado (competência)" value={centsToMoney(data.total_new_cents)} />
+            <StatCard label="Previsto para desconto no mês" value={centsToMoney(data.total_deduct_cents)} />
+            <StatCard label="Remanejado para meses futuros" value={centsToMoney(data.total_carryover_out_cents)} />
+            <StatCard label="Colaboradores com desconto" value={String(data.employees_with_deduct)} />
+            <StatCard label="Atingiram o teto (R$ 700)" value={String(data.employees_capped)} />
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
