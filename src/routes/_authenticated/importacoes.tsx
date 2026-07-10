@@ -40,8 +40,13 @@ function ImportsPage() {
   const qc = useQueryClient();
   const listFn = useServerFn(listImportBatches);
   const createFn = useServerFn(createImportBatchFromPdf);
+  const markerFn = useServerFn(getImportMarker);
+  const rolesFn = useServerFn(getMyRoles);
 
   const { data: batches = [] } = useQuery({ queryKey: ["import-batches"], queryFn: () => listFn() });
+  const { data: marker } = useQuery({ queryKey: ["import-marker"], queryFn: () => markerFn() });
+  const { data: myRoles = [] } = useQuery({ queryKey: ["my-roles"], queryFn: () => rolesFn() });
+  const isAdmin = myRoles.includes("admin");
 
   const [competence, setCompetence] = useState(() => {
     const d = new Date();
