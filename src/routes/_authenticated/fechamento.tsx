@@ -140,7 +140,10 @@ function ClosingPage() {
             </AlertDialog>
           )}
           {isClosed && <Badge variant="default"><Lock className="h-3 w-3 mr-1" />Mês fechado</Badge>}
-          <Button variant="outline" disabled title="Geração de XLSX na próxima entrega">Exportar XLSX (em breve)</Button>
+          <Button variant="outline" onClick={() => xlsxMut.mutate()} disabled={!previewData || xlsxMut.isPending}>
+            <Download className="h-4 w-4 mr-2" />
+            {xlsxMut.isPending ? "Gerando..." : isClosed ? "Baixar XLSX" : "Baixar XLSX (prévia)"}
+          </Button>
         </CardContent>
       </Card>
 
