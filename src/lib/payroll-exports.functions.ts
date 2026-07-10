@@ -51,10 +51,7 @@ function buildXlsxBuffer(params: {
     amount_cents: number;
   }>;
 }): Uint8Array {
-  // require dinamicamente para não puxar em cliente
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const XLSX = require("xlsx");
-  const ws: any = {};
+  const ws: XLSX.WorkSheet = {} as XLSX.WorkSheet;
 
   const setCell = (addr: string, value: any, opts?: { type?: "s" | "n"; z?: string }) => {
     if (value === "" || value === null || value === undefined) return;
