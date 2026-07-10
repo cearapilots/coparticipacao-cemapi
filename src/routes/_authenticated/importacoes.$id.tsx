@@ -242,7 +242,7 @@ function BatchDetail() {
                                 <SelectContent className="max-h-72">
                                   {filteredEmp.map((e) => (
                                     <SelectItem key={e.id} value={e.id}>
-                                      {e.full_name}{e.employee_code ? ` (${e.employee_code})` : ""}
+                                      {e.full_name}{e.payroll_code ? ` (${e.payroll_code})` : ""}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
@@ -271,7 +271,7 @@ function BatchDetail() {
                                   placeholder="Ex: dependente sem vínculo, cobrança duplicada..."
                                 />
                                 <DialogFooter>
-                                  <Button onClick={() => mIgnore.mutate({ item_id: it.id, ignore: true, reason: ignoreReason[it.id] || null })}>
+                                  <Button onClick={() => mIgnore.mutate({ item_id: it.id, ignore: true, reason: ignoreReason[it.id] || undefined })}>
                                     Confirmar ignorar
                                   </Button>
                                 </DialogFooter>

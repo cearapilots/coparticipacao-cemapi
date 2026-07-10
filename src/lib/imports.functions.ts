@@ -207,7 +207,7 @@ export const getImportBatchDetails = createServerFn({ method: "POST" })
         .select("*")
         .eq("import_batch_id", data.batch_id)
         .order("raw_employee_name", { ascending: true }),
-      context.supabase.from("employees").select("id, full_name, employee_code, status").order("full_name"),
+      context.supabase.from("employees").select("id, full_name, payroll_code, status").order("full_name"),
     ]);
     if (batchRes.error) throw batchRes.error;
     if (!batchRes.data) throw new Error("Lote não encontrado");
