@@ -78,8 +78,11 @@ export async function recalculateEmployeeLedger(
       // Não altera. Usa carryover_out registrado.
       carryoverIn = existing.carryover_out_cents ?? 0;
     } else {
-      const gross = scheduled + carryoverIn;
-      const { amountToDeductCents, carryoverOutCents } = applyMonthlyCap(gross, capCents);
+      const { grossDueCents: gross, amountToDeductCents, carryoverOutCents } = applyMonthlyCap({
+        scheduledAmountCents: scheduled,
+        carryoverInCents: carryoverIn,
+        capCents,
+      });
 
       if (existing) {
         await supabase
