@@ -3,13 +3,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { listEmployees, upsertEmployee } from "@/lib/employees.functions";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Plus, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -34,11 +34,16 @@ const emptyForm: EmpForm = {
   role: "", section_code: "", section_name: "", status: "active",
 };
 
+function normalize(s: string) {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
 function EmployeesPage() {
   const fetchList = useServerFn(listEmployees);
   const upsert = useServerFn(upsertEmployee);
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState<EmpForm>(emptyForm);
 
@@ -47,7 +52,7 @@ function EmployeesPage() {
   const mutation = useMutation({
     mutationFn: (payload: EmpForm) => upsert({ data: payload }),
     onSuccess: () => {
-      toast.success(form.id ? "Atualizado" : "Colaborador criado");
+      toast.success(form.id ? "Colaborador atualizado" : "Colaborador criado");
       setDialogOpen(false);
       setForm(emptyForm);
       qc.invalidateQueries({ queryKey: ["employees"] });
@@ -55,21 +60,28 @@ function EmployeesPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const filtered = employees.filter((e) =>
-    e.full_name.toLowerCase().includes(search.toLowerCase()) ||
-    (e.payroll_code ?? "").includes(search)
-  );
+  const filtered = useMemo(() => {
+    const s = normalize(search);
+    return employees.filter((e: any) => {
+      if (statusFilter !== "all" && e.status !== statusFilter) return false;
+      if (!s) return true;
+      if (normalize(e.full_name).includes(s)) return true;
+      if ((e.payroll_code ?? "").toLowerCase().includes(s)) return true;
+      if ((e.registration_number ?? "").toLowerCase().includes(s)) return true;
+      return (e.aliases ?? []).some((a: any) => a.normalized_alias_name.includes(s));
+    });
+  }, [employees, search, statusFilter]);
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-wrap gap-3 justify-between items-center">
         <div>
           <h1 className="text-2xl font-semibold">Colaboradores</h1>
-          <p className="text-sm text-muted-foreground">{employees.length} cadastrados</p>
+          <p className="text-sm text-muted-foreground">{employees.length} cadastrados · {filtered.length} exibidos</p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={(o) => { setDialogOpen(o); if (!o) setForm(emptyForm); }}>
           <DialogTrigger asChild>
-            <Button onClick={() => setForm(emptyForm)}><Plus className="h-4 w-4 mr-2" />Novo</Button>
+            <Button onClick={() => setForm(emptyForm)}><Plus className="h-4 w-4 mr-2" />Novo colaborador</Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader><DialogTitle>{form.id ? "Editar" : "Novo"} colaborador</DialogTitle></DialogHeader>
@@ -102,9 +114,19 @@ function EmployeesPage() {
 
       <Card>
         <CardHeader>
-          <div className="relative">
-            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Buscar por nome ou código" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 max-w-sm" />
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="relative flex-1 min-w-64 max-w-sm">
+              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input placeholder="Buscar por nome, alias, código ou matrícula" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
+            </div>
+            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
+              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="active">Ativos</SelectItem>
+                <SelectItem value="inactive">Inativos</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardHeader>
         <CardContent>
@@ -113,26 +135,33 @@ function EmployeesPage() {
               <TableHead>Nome</TableHead>
               <TableHead>Código</TableHead>
               <TableHead>Matrícula</TableHead>
+              <TableHead>Função</TableHead>
               <TableHead>Seção</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead></TableHead>
+              <TableHead className="text-right">Ações</TableHead>
             </TableRow></TableHeader>
             <TableBody>
               {filtered.length === 0 && (
-                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Nenhum colaborador</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhum colaborador</TableCell></TableRow>
               )}
-              {filtered.map((emp) => (
+              {filtered.map((emp: any) => (
                 <TableRow key={emp.id}>
-                  <TableCell className="font-medium">{emp.full_name}</TableCell>
+                  <TableCell className="font-medium">
+                    <Link to="/colaboradores/$id" params={{ id: emp.id }} className="hover:underline">{emp.full_name}</Link>
+                  </TableCell>
                   <TableCell>{emp.payroll_code ?? "—"}</TableCell>
                   <TableCell>{emp.registration_number ?? "—"}</TableCell>
+                  <TableCell>{emp.role ?? "—"}</TableCell>
                   <TableCell>{emp.section_name ?? "—"}</TableCell>
                   <TableCell>
                     <Badge variant={emp.status === "active" ? "default" : "secondary"}>
                       {emp.status === "active" ? "Ativo" : "Inativo"}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-right space-x-2">
+                  <TableCell className="text-right space-x-1">
+                    <Button variant="ghost" size="sm" asChild>
+                      <Link to="/colaboradores/$id" params={{ id: emp.id }}>Histórico</Link>
+                    </Button>
                     <Button variant="ghost" size="sm" onClick={() => {
                       setForm({
                         id: emp.id, full_name: emp.full_name,
@@ -142,9 +171,6 @@ function EmployeesPage() {
                       });
                       setDialogOpen(true);
                     }}>Editar</Button>
-                    <Button variant="outline" size="sm" asChild>
-                      <Link to="/colaboradores/$id" params={{ id: emp.id }}>Abrir</Link>
-                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
