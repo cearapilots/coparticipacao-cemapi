@@ -3,7 +3,7 @@
  * Roda apenas no navegador (usa Worker/URL). Não importar no servidor.
  */
 import * as pdfjsLib from "pdfjs-dist";
-// @ts-expect-error - Vite resolve ?url para string em runtime
+// @ts-ignore - Vite resolve ?url para string em runtime
 import workerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 let workerConfigured = false;
