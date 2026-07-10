@@ -65,6 +65,31 @@ function matchName(
 
 // ------------------- CREATE BATCH FROM PARSED TEXT -------------------
 
+// ------------------- MARKER (marco operacional) -------------------
+
+export const getImportMarker = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data } = await context.supabase
+      .from("app_settings")
+      .select("setting_key, setting_value")
+      .in("setting_key", [
+        "first_unimed_import_month",
+        "opening_balance_reference_month",
+        "opening_balance_source_note",
+      ]);
+    const map = new Map((data ?? []).map((r) => [r.setting_key, r.setting_value]));
+    return {
+      first_unimed_import_month:
+        (map.get("first_unimed_import_month") as string) ?? "2026-08-01",
+      opening_balance_reference_month:
+        (map.get("opening_balance_reference_month") as string) ?? "2026-07-01",
+      opening_balance_source_note:
+        (map.get("opening_balance_source_note") as string) ??
+        "Carga inicial — Unimed Saldo Devedor 07/2026",
+    };
+  });
+
 export const createImportBatchFromPdf = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) =>
@@ -73,15 +98,51 @@ export const createImportBatchFromPdf = createServerFn({ method: "POST" })
       source_file_name: z.string().min(1),
       source_file_hash: z.string().min(4),
       source_file_storage_path: z.string().nullable().optional(),
-      competence_month: z.string(), // 'YYYY-MM' ou 'YYYY-MM-DD'
+      competence_month: z.string(),
       confirm_reprocess: z.boolean().optional(),
+      pre_marker_override_reason: z.string().trim().min(10).max(500).optional(),
     }).parse(d),
   )
   .handler(async ({ context, data }) => {
-    const { requireAnyRole } = await import("./authz.server");
+    const { requireAnyRole, getUserRoles } = await import("./authz.server");
     await requireAnyRole(context.supabase, context.userId, ["admin", "rh"]);
 
     const competence = toMonthISO(data.competence_month);
+
+    // Marco operacional: bloqueia competências anteriores ao first_unimed_import_month.
+    // Só admin pode fazer override, e apenas com justificativa obrigatória.
+    const { data: markerRow } = await context.supabase
+      .from("app_settings")
+      .select("setting_value")
+      .eq("setting_key", "first_unimed_import_month")
+      .maybeSingle();
+    const marker = toMonthISO((markerRow?.setting_value as string) ?? "2026-08-01");
+    if (competence < marker) {
+      const roles = await getUserRoles(context.supabase, context.userId);
+      const isAdmin = roles.includes("admin");
+      if (!isAdmin) {
+        throw new Error(
+          `A competência ${competence.substring(0, 7)} é anterior ao marco operacional (${marker.substring(0, 7)}). Esses meses já foram cobertos pela carga inicial de saldo devedor. Apenas administradores podem importar competências anteriores.`,
+        );
+      }
+      if (!data.pre_marker_override_reason) {
+        throw new Error(
+          `PRE_MARKER_OVERRIDE_REQUIRED: competência ${competence.substring(0, 7)} anterior ao marco (${marker.substring(0, 7)}). Informe uma justificativa para prosseguir.`,
+        );
+      }
+      const { logAudit } = await import("./audit.server");
+      await logAudit(context.supabase, context.userId, {
+        action: "import.pre_marker_override",
+        entityType: "import_batch",
+        afterSnapshot: {
+          competence_month: competence,
+          marker_month: marker,
+          reason: data.pre_marker_override_reason,
+          source_file_name: data.source_file_name,
+          source_file_hash: data.source_file_hash,
+        },
+      });
+    }
 
     // Duplicidade por hash
     const { data: existingByHash } = await context.supabase
