@@ -215,10 +215,28 @@ function ImportsPage() {
             <Button variant="outline" onClick={handleExtract} disabled={!file || busy}>
               <FileText className="h-4 w-4 mr-2" /> Extrair texto do PDF
             </Button>
-            <Button onClick={() => submit()} disabled={busy || (!extracted && !pastedText.trim())}>
+            <Button
+              onClick={() => submit()}
+              disabled={busy || (!extracted && !pastedText.trim()) || (isBeforeMarker && !isAdmin)}
+            >
               {busy ? "Processando..." : "Processar e criar lote"}
             </Button>
           </div>
+
+          {isBeforeMarker && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Competência anterior ao marco operacional</AlertTitle>
+              <AlertDescription>
+                Este mês ({competenceISO.substring(0, 7)}) já está coberto pela carga inicial
+                de saldo devedor. Importar este arquivo pode duplicar valores. A primeira
+                importação operacional da UNIMED deve ser a partir de {markerISO.substring(0, 7)}.
+                {isAdmin
+                  ? " Como administrador, você pode prosseguir informando uma justificativa obrigatória."
+                  : " Importação bloqueada para usuários RH — solicite a um administrador."}
+              </AlertDescription>
+            </Alert>
+          )}
 
           {extracted && (
             <Alert>
