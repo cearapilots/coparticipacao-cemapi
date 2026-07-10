@@ -1,0 +1,478 @@
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { normalizeName } from "./calc/name";
+import { parseUnimedText } from "./unimed-parser";
+import { toMonthISO, addMonths } from "./calc/date";
+import { generateInstallmentPlan, type InstallmentThreshold } from "./calc/installments";
+
+type Sb = Parameters<typeof requireSupabaseAuth extends { server: infer S } ? any : any>[0] extends any ? any : any;
+
+async function loadThresholds(supabase: any): Promise<InstallmentThreshold[]> {
+  const { data } = await supabase
+    .from("app_settings").select("setting_value").eq("setting_key", "installment_thresholds").maybeSingle();
+  const v = data?.setting_value;
+  return Array.isArray(v) ? (v as InstallmentThreshold[]) : [];
+}
+
+interface MatchResult {
+  employee_id: string | null;
+  status: "auto_matched" | "needs_review" | "not_found";
+  confidence: number;
+}
+
+function tokenSubsetScore(a: string, b: string): number {
+  const ta = new Set(a.split(/\s+/).filter((t) => t.length >= 2));
+  const tb = new Set(b.split(/\s+/).filter((t) => t.length >= 2));
+  if (ta.size === 0 || tb.size === 0) return 0;
+  const [small, big] = ta.size <= tb.size ? [ta, tb] : [tb, ta];
+  let hit = 0;
+  for (const t of small) if (big.has(t)) hit++;
+  return hit / small.size;
+}
+
+function matchName(
+  rawName: string,
+  employees: { id: string; normalized_name: string }[],
+  aliases: { employee_id: string; normalized_alias_name: string }[],
+): MatchResult {
+  const n = normalizeName(rawName);
+  if (!n) return { employee_id: null, status: "not_found", confidence: 0 };
+
+  // Exato: employees
+  const exactEmp = employees.find((e) => e.normalized_name === n);
+  if (exactEmp) return { employee_id: exactEmp.id, status: "auto_matched", confidence: 1 };
+
+  // Exato: aliases
+  const exactAlias = aliases.find((a) => a.normalized_alias_name === n);
+  if (exactAlias) return { employee_id: exactAlias.employee_id, status: "auto_matched", confidence: 1 };
+
+  // Aproximado por tokens
+  let best: { id: string; score: number } | null = null;
+  for (const e of employees) {
+    const s = tokenSubsetScore(n, e.normalized_name);
+    if (!best || s > best.score) best = { id: e.id, score: s };
+  }
+  for (const a of aliases) {
+    const s = tokenSubsetScore(n, a.normalized_alias_name);
+    if (!best || s > best.score) best = { id: a.employee_id, score: s };
+  }
+  if (best && best.score >= 0.6) {
+    return { employee_id: best.id, status: "needs_review", confidence: best.score };
+  }
+  return { employee_id: null, status: "not_found", confidence: 0 };
+}
+
+// ------------------- CREATE BATCH FROM PARSED TEXT -------------------
+
+export const createImportBatchFromPdf = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z.object({
+      raw_text: z.string().min(10),
+      source_file_name: z.string().min(1),
+      source_file_hash: z.string().min(4),
+      source_file_storage_path: z.string().nullable().optional(),
+      competence_month: z.string(), // 'YYYY-MM' ou 'YYYY-MM-DD'
+      confirm_reprocess: z.boolean().optional(),
+    }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    const { requireAnyRole } = await import("./authz.server");
+    await requireAnyRole(context.supabase, context.userId, ["admin", "rh"]);
+
+    const competence = toMonthISO(data.competence_month);
+
+    // Duplicidade por hash
+    const { data: existingByHash } = await context.supabase
+      .from("import_batches")
+      .select("id, status, source_file_name, uploaded_at")
+      .eq("source_file_hash", data.source_file_hash)
+      .order("uploaded_at", { ascending: false });
+    if ((existingByHash?.length ?? 0) > 0 && !data.confirm_reprocess) {
+      return {
+        duplicate: true,
+        reason: "hash",
+        existing: existingByHash,
+        batch_id: null as string | null,
+      };
+    }
+
+    // Duplicidade por competência confirmada
+    const { data: existingByComp } = await context.supabase
+      .from("import_batches")
+      .select("id, status, source_file_name")
+      .eq("competence_month", competence)
+      .eq("status", "confirmed");
+    if ((existingByComp?.length ?? 0) > 0 && !data.confirm_reprocess) {
+      return {
+        duplicate: true,
+        reason: "competence_confirmed",
+        existing: existingByComp,
+        batch_id: null as string | null,
+      };
+    }
+
+    const parsed = parseUnimedText(data.raw_text);
+
+    const { data: batch, error: bErr } = await context.supabase
+      .from("import_batches")
+      .insert({
+        source_type: "unimed_pdf",
+        source_file_name: data.source_file_name,
+        source_file_hash: data.source_file_hash,
+        source_file_storage_path: data.source_file_storage_path ?? null,
+        billing_month: parsed.billing_month,
+        competence_month: competence,
+        uploaded_by: context.userId,
+        status: "pending_review",
+        total_items: parsed.items.length,
+        total_amount_cents: parsed.sum_items_cents,
+        total_charged_company_cents: parsed.total_charged_company_cents,
+        notes: parsed.warnings.length ? `Avisos do parser:\n- ${parsed.warnings.join("\n- ")}` : null,
+      })
+      .select("*")
+      .single();
+    if (bErr) throw bErr;
+
+    // Matching
+    const [empRes, aliasRes] = await Promise.all([
+      context.supabase.from("employees").select("id, normalized_name").eq("status", "active"),
+      context.supabase.from("employee_aliases").select("employee_id, normalized_alias_name"),
+    ]);
+    const employees = empRes.data ?? [];
+    const aliases = aliasRes.data ?? [];
+
+    if (parsed.items.length > 0) {
+      const itemRows = parsed.items.map((it) => {
+        const m = matchName(it.raw_employee_name, employees, aliases);
+        return {
+          import_batch_id: batch.id,
+          raw_employee_name: it.raw_employee_name,
+          matched_employee_id: m.employee_id,
+          match_confidence: m.confidence,
+          match_status: m.status,
+          amount_cents: it.amount_cents,
+          raw_text_reference: it.raw_text_reference,
+          review_status: m.status === "auto_matched" ? "reviewed" : "pending",
+        };
+      });
+      const { error: iErr } = await context.supabase.from("import_items").insert(itemRows);
+      if (iErr) throw iErr;
+    }
+
+    const { logAudit } = await import("./audit.server");
+    await logAudit(context.supabase, context.userId, {
+      action: "import.batch.create",
+      entityType: "import_batch",
+      entityId: batch.id,
+      afterSnapshot: {
+        source_file_name: batch.source_file_name,
+        competence_month: batch.competence_month,
+        billing_month: batch.billing_month,
+        total_items: batch.total_items,
+        total_amount_cents: batch.total_amount_cents,
+        total_charged_company_cents: batch.total_charged_company_cents,
+        reprocess: !!data.confirm_reprocess,
+      },
+    });
+
+    return { duplicate: false as const, batch_id: batch.id, warnings: parsed.warnings };
+  });
+
+// ------------------- LIST -------------------
+
+export const listImportBatches = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data, error } = await context.supabase
+      .from("import_batches")
+      .select("*")
+      .order("uploaded_at", { ascending: false })
+      .limit(50);
+    if (error) throw error;
+    return data ?? [];
+  });
+
+// ------------------- DETAILS -------------------
+
+export const getImportBatchDetails = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ batch_id: z.string().uuid() }).parse(d))
+  .handler(async ({ context, data }) => {
+    const [batchRes, itemsRes, empRes] = await Promise.all([
+      context.supabase.from("import_batches").select("*").eq("id", data.batch_id).maybeSingle(),
+      context.supabase
+        .from("import_items")
+        .select("*")
+        .eq("import_batch_id", data.batch_id)
+        .order("raw_employee_name", { ascending: true }),
+      context.supabase.from("employees").select("id, full_name, employee_code, status").order("full_name"),
+    ]);
+    if (batchRes.error) throw batchRes.error;
+    if (!batchRes.data) throw new Error("Lote não encontrado");
+    if (itemsRes.error) throw itemsRes.error;
+    if (empRes.error) throw empRes.error;
+    return { batch: batchRes.data, items: itemsRes.data ?? [], employees: empRes.data ?? [] };
+  });
+
+// ------------------- UPDATE ITEM MATCH -------------------
+
+export const updateImportItemMatch = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z.object({
+      item_id: z.string().uuid(),
+      employee_id: z.string().uuid().nullable(),
+    }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    const { requireAnyRole } = await import("./authz.server");
+    await requireAnyRole(context.supabase, context.userId, ["admin", "rh"]);
+    const { error } = await context.supabase
+      .from("import_items")
+      .update({
+        matched_employee_id: data.employee_id,
+        match_status: data.employee_id ? "manually_matched" : "not_found",
+        match_confidence: data.employee_id ? 1 : 0,
+        review_status: data.employee_id ? "reviewed" : "pending",
+        reviewed_by: context.userId,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq("id", data.item_id);
+    if (error) throw error;
+    return { ok: true };
+  });
+
+// ------------------- IGNORE ITEM -------------------
+
+export const ignoreImportItem = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z.object({
+      item_id: z.string().uuid(),
+      ignore: z.boolean(),
+      reason: z.string().optional().nullable(),
+    }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    const { requireAnyRole } = await import("./authz.server");
+    await requireAnyRole(context.supabase, context.userId, ["admin", "rh"]);
+    const patch = data.ignore
+      ? {
+          match_status: "ignored",
+          review_status: "ignored",
+          reviewed_by: context.userId,
+          reviewed_at: new Date().toISOString(),
+          notes: data.reason ?? null,
+        }
+      : {
+          match_status: "needs_review",
+          review_status: "pending",
+          reviewed_by: null,
+          reviewed_at: null,
+          notes: null,
+        };
+    const { error } = await context.supabase.from("import_items").update(patch).eq("id", data.item_id);
+    if (error) throw error;
+    return { ok: true };
+  });
+
+// ------------------- CANCEL -------------------
+
+export const cancelImportBatch = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ batch_id: z.string().uuid() }).parse(d))
+  .handler(async ({ context, data }) => {
+    const { requireAnyRole } = await import("./authz.server");
+    await requireAnyRole(context.supabase, context.userId, ["admin", "rh"]);
+    const { data: b } = await context.supabase.from("import_batches").select("status").eq("id", data.batch_id).maybeSingle();
+    if (!b) throw new Error("Lote não encontrado");
+    if (b.status === "confirmed") throw new Error("Não é possível cancelar um lote confirmado");
+    const { error } = await context.supabase
+      .from("import_batches")
+      .update({ status: "cancelled" })
+      .eq("id", data.batch_id);
+    if (error) throw error;
+    const { logAudit } = await import("./audit.server");
+    await logAudit(context.supabase, context.userId, {
+      action: "import.batch.cancel",
+      entityType: "import_batch",
+      entityId: data.batch_id,
+    });
+    return { ok: true };
+  });
+
+// ------------------- CONFIRM BATCH -------------------
+
+export const confirmImportBatch = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ batch_id: z.string().uuid() }).parse(d))
+  .handler(async ({ context, data }) => {
+    const { requireAnyRole } = await import("./authz.server");
+    await requireAnyRole(context.supabase, context.userId, ["admin", "rh"]);
+    const { logAudit } = await import("./audit.server");
+    const { recalculateEmployeeLedger, getLastClosedMonth } = await import("./ledger.server");
+
+    const { data: batch, error: bErr } = await context.supabase
+      .from("import_batches")
+      .select("*")
+      .eq("id", data.batch_id)
+      .maybeSingle();
+    if (bErr) throw bErr;
+    if (!batch) throw new Error("Lote não encontrado");
+    if (batch.status === "confirmed") throw new Error("Lote já foi confirmado");
+    if (batch.status === "cancelled") throw new Error("Lote foi cancelado");
+    if (!batch.competence_month) throw new Error("Lote sem competência definida");
+
+    const { data: items, error: iErr } = await context.supabase
+      .from("import_items")
+      .select("*")
+      .eq("import_batch_id", data.batch_id);
+    if (iErr) throw iErr;
+
+    // Validação: nada pode estar not_found ou needs_review pendente
+    const pending = (items ?? []).filter(
+      (it) =>
+        it.review_status !== "ignored" &&
+        (it.match_status === "not_found" ||
+          it.match_status === "needs_review" ||
+          !it.matched_employee_id),
+    );
+    if (pending.length > 0) {
+      throw new Error(
+        `Existem ${pending.length} item(ns) pendentes de revisão. Associe ou ignore antes de confirmar.`,
+      );
+    }
+
+    const toProcess = (items ?? []).filter(
+      (it) =>
+        it.review_status !== "ignored" &&
+        it.matched_employee_id &&
+        (it.amount_cents ?? 0) > 0,
+    );
+
+    const thresholds = await loadThresholds(context.supabase);
+    const competence = toMonthISO(batch.competence_month);
+    const employeesAffected = new Set<string>();
+    const earliestByEmp = new Map<string, string>();
+
+    for (const it of toProcess) {
+      const empId = it.matched_employee_id!;
+      const amount = it.amount_cents!;
+      const lastClosed = await getLastClosedMonth(context.supabase, empId);
+      const plan = generateInstallmentPlan(competence, amount, thresholds);
+      const anyInClosed = lastClosed && plan.items.some((p) => p.dueMonth <= lastClosed);
+
+      // 1) monthly_usage
+      const { data: usage, error: uErr } = await context.supabase
+        .from("monthly_usage")
+        .insert({
+          employee_id: empId,
+          competence_month: competence,
+          amount_cents: amount,
+          source_type: "unimed_pdf",
+          source_reference_id: it.id,
+          status: "confirmed",
+          notes: `Importação UNIMED — lote ${batch.id.substring(0, 8)}`,
+        })
+        .select("id")
+        .single();
+      if (uErr) throw uErr;
+
+      let planRow;
+      if (anyInClosed && lastClosed) {
+        const nextOpen = addMonths(lastClosed, 1);
+        const { data: adj, error: pErr } = await context.supabase
+          .from("installment_plans")
+          .insert({
+            employee_id: empId,
+            monthly_usage_id: usage.id,
+            source_type: "adjustment",
+            total_amount_cents: amount,
+            installment_count: 1,
+            first_due_month: nextOpen,
+            rule_version: "adjustment_v1",
+            status: "active",
+            notes: "Ajuste retroativo (importação UNIMED): competência afeta mês(es) fechado(s).",
+          })
+          .select("id")
+          .single();
+        if (pErr) throw pErr;
+        planRow = adj;
+        await context.supabase.from("installment_plan_items").insert({
+          installment_plan_id: adj.id,
+          employee_id: empId,
+          competence_month: competence,
+          due_month: nextOpen,
+          installment_number: 1,
+          installment_count: 1,
+          scheduled_amount_cents: amount,
+          status: "projected",
+        });
+        const cur = earliestByEmp.get(empId);
+        if (!cur || nextOpen < cur) earliestByEmp.set(empId, nextOpen);
+      } else {
+        const { data: p, error: pErr } = await context.supabase
+          .from("installment_plans")
+          .insert({
+            employee_id: empId,
+            monthly_usage_id: usage.id,
+            source_type: "monthly_usage",
+            total_amount_cents: amount,
+            installment_count: plan.installmentCount,
+            first_due_month: plan.firstDueMonth,
+            rule_version: "v1",
+            status: "active",
+          })
+          .select("id")
+          .single();
+        if (pErr) throw pErr;
+        planRow = p;
+        await context.supabase.from("installment_plan_items").insert(
+          plan.items.map((pit) => ({
+            installment_plan_id: p.id,
+            employee_id: empId,
+            competence_month: competence,
+            due_month: pit.dueMonth,
+            installment_number: pit.installmentNumber,
+            installment_count: plan.installmentCount,
+            scheduled_amount_cents: pit.amountCents,
+            status: "projected",
+          })),
+        );
+        const cur = earliestByEmp.get(empId);
+        if (!cur || plan.firstDueMonth < cur) earliestByEmp.set(empId, plan.firstDueMonth);
+      }
+      void planRow;
+      employeesAffected.add(empId);
+    }
+
+    // Recalcula ledger de cada colaborador impactado
+    for (const [empId, fromMonth] of earliestByEmp) {
+      await recalculateEmployeeLedger(context.supabase, empId, fromMonth);
+    }
+
+    // Marca lote como confirmado
+    await context.supabase
+      .from("import_batches")
+      .update({ status: "confirmed" })
+      .eq("id", batch.id);
+
+    await logAudit(context.supabase, context.userId, {
+      action: "import.batch.confirm",
+      entityType: "import_batch",
+      entityId: batch.id,
+      afterSnapshot: {
+        processed_items: toProcess.length,
+        employees_affected: employeesAffected.size,
+        total_amount_cents: toProcess.reduce((a, b) => a + (b.amount_cents ?? 0), 0),
+      },
+    });
+
+    return {
+      ok: true,
+      processed_items: toProcess.length,
+      employees_affected: employeesAffected.size,
+    };
+  });
