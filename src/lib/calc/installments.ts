@@ -76,12 +76,64 @@ export function generateInstallmentPlan(
 
 /**
  * Aplica o teto mensal.
+ * gross = scheduled + carryoverIn
+ * toDeduct = min(gross, cap)
+ * carryoverOut = gross - toDeduct
  */
-export function applyMonthlyCap(
-  grossDueCents: number,
-  capCents: number,
-): { amountToDeductCents: number; carryoverOutCents: number } {
-  const toDeduct = Math.min(grossDueCents, capCents);
-  const carryover = Math.max(0, grossDueCents - toDeduct);
-  return { amountToDeductCents: toDeduct, carryoverOutCents: carryover };
+export function applyMonthlyCap(input: {
+  scheduledAmountCents: number;
+  carryoverInCents: number;
+  capCents: number;
+}): {
+  grossDueCents: number;
+  amountToDeductCents: number;
+  carryoverOutCents: number;
+} {
+  const gross = (input.scheduledAmountCents ?? 0) + (input.carryoverInCents ?? 0);
+  const toDeduct = Math.min(gross, input.capCents);
+  const carryover = Math.max(0, gross - toDeduct);
+  return {
+    grossDueCents: gross,
+    amountToDeductCents: toDeduct,
+    carryoverOutCents: carryover,
+  };
+}
+
+/**
+ * Gera plano de saldo inicial. NÃO aplica regra de faixas.
+ * Se `manualInstallments` for informado, valida soma = total.
+ * Caso contrário, divide preservando centavos (última parcela absorve resto).
+ */
+export function generateOpeningBalancePlan(input: {
+  totalAmountCents: number;
+  firstDueMonth: MonthISO;
+  installmentCount: number;
+  manualInstallments?: number[];
+}): InstallmentPlanPreview {
+  const { totalAmountCents, firstDueMonth, installmentCount, manualInstallments } = input;
+  if (installmentCount <= 0) {
+    throw new Error("installmentCount deve ser >= 1");
+  }
+  let amounts: number[];
+  if (manualInstallments && manualInstallments.length > 0) {
+    if (manualInstallments.length !== installmentCount) {
+      throw new Error("manualInstallments.length deve ser igual a installmentCount");
+    }
+    const sum = manualInstallments.reduce((a, b) => a + b, 0);
+    if (sum !== totalAmountCents) {
+      throw new Error(`Soma das parcelas (${sum}) diferente do total (${totalAmountCents})`);
+    }
+    amounts = manualInstallments;
+  } else {
+    amounts = splitIntoInstallments(totalAmountCents, installmentCount);
+  }
+  return {
+    installmentCount,
+    firstDueMonth,
+    items: amounts.map((amt, i) => ({
+      installmentNumber: i + 1,
+      dueMonth: addMonths(firstDueMonth, i),
+      amountCents: amt,
+    })),
+  };
 }
