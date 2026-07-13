@@ -8,6 +8,12 @@ import { generateInstallmentPlan, type InstallmentThreshold } from "./calc/insta
 
 type Sb = Parameters<typeof requireSupabaseAuth extends { server: infer S } ? any : any>[0] extends any ? any : any;
 
+// Valor efetivo: corrigido pelo RH/admin quando existir, senão o valor
+// originalmente extraído do PDF. amount_cents nunca é sobrescrito.
+function effectiveAmountCents(it: { amount_cents: number | null; corrected_amount_cents?: number | null }): number {
+  return it.corrected_amount_cents ?? it.amount_cents ?? 0;
+}
+
 async function loadThresholds(supabase: any): Promise<InstallmentThreshold[]> {
   const { data } = await supabase
     .from("app_settings").select("setting_value").eq("setting_key", "installment_thresholds").maybeSingle();
@@ -305,6 +311,75 @@ export const updateImportItemMatch = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+// ------------------- CORRECT EXTRACTED AMOUNT -------------------
+// amount_cents nunca é sobrescrito — é o valor original extraído do PDF.
+// A correção fica em corrected_amount_cents; o valor efetivo (usado na
+// confirmação do lote) é corrected_amount_cents ?? amount_cents.
+// Passar corrected_amount_cents = null remove a correção (volta a usar o
+// valor original), mas ainda exige justificativa (fica no audit_log).
+
+export const updateImportItemAmount = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z.object({
+      item_id: z.string().uuid(),
+      corrected_amount_cents: z.number().int().nonnegative().nullable(),
+      reason: z.string().trim().min(10, "Justificativa deve ter ao menos 10 caracteres").max(500),
+    }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    const { requireAnyRole } = await import("./authz.server");
+    await requireAnyRole(context.supabase, context.userId, ["admin", "rh"]);
+    const { logAudit } = await import("./audit.server");
+
+    const { data: item, error: itemErr } = await context.supabase
+      .from("import_items")
+      .select("*")
+      .eq("id", data.item_id)
+      .maybeSingle();
+    if (itemErr) throw itemErr;
+    if (!item) throw new Error("Item não encontrado.");
+
+    const { data: batch, error: batchErr } = await context.supabase
+      .from("import_batches")
+      .select("status")
+      .eq("id", item.import_batch_id)
+      .maybeSingle();
+    if (batchErr) throw batchErr;
+    if (batch?.status === "confirmed" || batch?.status === "cancelled") {
+      throw new Error("Não é possível editar valor: o lote já foi confirmado ou cancelado.");
+    }
+
+    const before = {
+      amount_cents: item.amount_cents,
+      corrected_amount_cents: item.corrected_amount_cents,
+      correction_reason: item.correction_reason,
+    };
+
+    const { data: updated, error: updErr } = await context.supabase
+      .from("import_items")
+      .update({
+        corrected_amount_cents: data.corrected_amount_cents,
+        correction_reason: data.reason,
+        corrected_by: context.userId,
+        corrected_at: new Date().toISOString(),
+      })
+      .eq("id", data.item_id)
+      .select("*")
+      .single();
+    if (updErr) throw updErr;
+
+    await logAudit(context.supabase, context.userId, {
+      action: data.corrected_amount_cents === null ? "import_item.amount_correction_clear" : "import_item.amount_correct",
+      entityType: "import_item",
+      entityId: data.item_id,
+      beforeSnapshot: before,
+      afterSnapshot: { corrected_amount_cents: data.corrected_amount_cents, reason: data.reason },
+    });
+
+    return updated;
+  });
+
 // ------------------- IGNORE ITEM -------------------
 
 export const ignoreImportItem = createServerFn({ method: "POST" })
@@ -417,7 +492,7 @@ export const confirmImportBatch = createServerFn({ method: "POST" })
       (it) =>
         it.review_status !== "ignored" &&
         it.matched_employee_id &&
-        (it.amount_cents ?? 0) > 0,
+        effectiveAmountCents(it) > 0,
     );
 
     const thresholds = await loadThresholds(context.supabase);
@@ -434,7 +509,7 @@ export const confirmImportBatch = createServerFn({ method: "POST" })
     // localizados por auditoria. Uma RPC transacional pode ser adicionada no futuro.
     for (const it of toProcess) {
       const empId = it.matched_employee_id!;
-      const amount = it.amount_cents!;
+      const amount = effectiveAmountCents(it);
       const lastClosed = await getLastClosedMonth(context.supabase, empId);
       const plan = generateInstallmentPlan(competence, amount, thresholds);
       const anyInClosed = lastClosed && plan.items.some((p) => p.dueMonth <= lastClosed);
