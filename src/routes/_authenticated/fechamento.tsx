@@ -70,7 +70,10 @@ function ClosingPage() {
       toast.success(`XLSX gerado: ${r.file_name}`);
       exportsQuery.refetch();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => {
+      console.error("Falha ao gerar XLSX:", e.message);
+      toast.error("Não foi possível gerar o XLSX de prévia. Verifique suas permissões ou tente novamente.");
+    },
   });
 
   const exportsQuery = useQuery({
@@ -107,6 +110,15 @@ function ClosingPage() {
           Gere a prévia, revise linha a linha, feche o mês e baixe o XLSX contábil.
         </p>
       </div>
+
+      <Alert>
+        <Info className="h-4 w-4" />
+        <AlertDescription className="space-y-1">
+          <div><b>Gerar prévia</b> apenas calcula e mostra os valores do mês — não altera nada.</div>
+          <div><b>Baixar XLSX prévia</b> gera um arquivo de conferência antes do fechamento, sem marcar o mês como fechado.</div>
+          <div><b>Fechar mês</b> congela os valores como oficiais. Depois de fechado, alterações retroativas viram <b>ajuste controlado</b> em um mês futuro — o mês fechado nunca é sobrescrito. Nenhum mês é fechado automaticamente.</div>
+        </AlertDescription>
+      </Alert>
 
       <Card>
         <CardContent className="flex flex-wrap gap-3 items-end pt-6">
