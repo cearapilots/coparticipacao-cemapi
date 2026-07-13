@@ -267,6 +267,10 @@ export type Database = {
       import_items: {
         Row: {
           amount_cents: number | null
+          corrected_amount_cents: number | null
+          corrected_at: string | null
+          corrected_by: string | null
+          correction_reason: string | null
           created_at: string
           id: string
           import_batch_id: string
@@ -284,6 +288,10 @@ export type Database = {
         }
         Insert: {
           amount_cents?: number | null
+          corrected_amount_cents?: number | null
+          corrected_at?: string | null
+          corrected_by?: string | null
+          correction_reason?: string | null
           created_at?: string
           id?: string
           import_batch_id: string
@@ -301,6 +309,10 @@ export type Database = {
         }
         Update: {
           amount_cents?: number | null
+          corrected_amount_cents?: number | null
+          corrected_at?: string | null
+          corrected_by?: string | null
+          correction_reason?: string | null
           created_at?: string
           id?: string
           import_batch_id?: string
