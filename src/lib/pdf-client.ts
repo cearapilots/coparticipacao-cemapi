@@ -18,11 +18,11 @@ function ensureWorker() {
 // pdfjs getTextContent() devolve os itens de texto na ordem em que foram
 // desenhados no PDF, que para relatórios em tabela (colunas geradas por
 // operadores de desenho separados) quase nunca é a ordem visual de leitura.
-// Reconstrói a ordem visual agrupando itens por linha (coordenada Y, com
-// tolerância) e ordenando cada linha por X — sem isso "Titular" e "Total da
-// Família" chegam embaralhados no texto e o parser não consegue parear nada.
+// Reconstrói a ordem visual agrupando itens por linha e ordenando cada linha
+// por X — sem isso "Titular" e "Total da Família" chegam embaralhados e o
+// parser não consegue parear nada.
 function reconstructPageText(items: unknown[]): string {
-  interface PositionedItem { str: string; x: number; y: number }
+  interface PositionedItem { str: string; x: number; y: number; height: number }
   const positioned: PositionedItem[] = items
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .filter((it: any) => "str" in it && typeof it.str === "string" && it.str.trim().length > 0)
@@ -31,23 +31,43 @@ function reconstructPageText(items: unknown[]): string {
       str: String(it.str),
       x: Number(it.transform?.[4] ?? 0),
       y: Number(it.transform?.[5] ?? 0),
+      height: Math.abs(Number(it.transform?.[3] ?? it.height ?? 10)) || 10,
     }));
 
-  // Agrupa por Y arredondado (chave exata, não por comparação incremental
-  // contra o 1º item da linha — isso evitava "deriva": um item levemente
-  // deslocado puxava a linha inteira e acabava colando duas linhas visuais
-  // distintas em uma só, embaralhando "Titular"/"Total da Família" de novo.
-  const buckets = new Map<number, PositionedItem[]>();
+  // Alguns geradores de PDF simulam negrito desenhando o MESMO texto duas
+  // vezes quase na mesma posição ("poor man's bold"). Isso duplicava
+  // rótulos como "Titular" (daí "Titular Titular Titular..."). Remove
+  // duplicata exata de texto muito próxima em X/Y antes de reconstruir.
+  positioned.sort((a, b) => b.y - a.y || a.x - b.x);
+  const deduped: PositionedItem[] = [];
   for (const item of positioned) {
-    const key = Math.round(item.y);
-    const bucket = buckets.get(key);
-    if (bucket) bucket.push(item);
-    else buckets.set(key, [item]);
+    const prev = deduped[deduped.length - 1];
+    const isDuplicate = prev && prev.str === item.str
+      && Math.abs(prev.y - item.y) < 0.5
+      && Math.abs(prev.x - item.x) < Math.max(item.height, 1);
+    if (!isDuplicate) deduped.push(item);
   }
-  // Y maior = mais acima na página (origem do PDF é embaixo-esquerda)
-  const lines = Array.from(buckets.entries()).sort((a, b) => b[0] - a[0]);
+
+  // Agrupa em linhas: quebra quando o Y muda mais que ~metade da altura do
+  // texto — limiar relativo ao tamanho de fonte real do PDF, não um valor
+  // fixo em pontos (que pode não bater com a escala deste documento).
+  const lines: PositionedItem[][] = [];
+  let currentLine: PositionedItem[] = [];
+  for (const item of deduped) {
+    if (currentLine.length > 0) {
+      const ref = currentLine[0];
+      const threshold = Math.max(ref.height, item.height) * 0.6;
+      if (Math.abs(ref.y - item.y) > threshold) {
+        lines.push(currentLine);
+        currentLine = [];
+      }
+    }
+    currentLine.push(item);
+  }
+  if (currentLine.length > 0) lines.push(currentLine);
+
   return lines
-    .map(([, line]) => line.slice().sort((a, b) => a.x - b.x).map((it) => it.str).join(" "))
+    .map((line) => line.slice().sort((a, b) => a.x - b.x).map((it) => it.str).join(" "))
     .join("\n");
 }
 
