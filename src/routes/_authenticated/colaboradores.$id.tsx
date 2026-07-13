@@ -3,6 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getEmployeeDetail } from "@/lib/employee-detail.functions";
 import { upsertAlias, deleteAlias } from "@/lib/employees.functions";
+import { getMyRoles } from "@/lib/settings.functions";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -44,6 +45,7 @@ function EmployeeDetail() {
   const fetchDetail = useServerFn(getEmployeeDetail);
   const addAlias = useServerFn(upsertAlias);
   const rmAlias = useServerFn(deleteAlias);
+  const fetchRoles = useServerFn(getMyRoles);
   const qc = useQueryClient();
   const [newAlias, setNewAlias] = useState("");
 
@@ -51,6 +53,8 @@ function EmployeeDetail() {
     queryKey: ["employee-detail", id],
     queryFn: () => fetchDetail({ data: { id } }),
   });
+  const { data: myRoles = [] } = useQuery({ queryKey: ["my-roles"], queryFn: () => fetchRoles() });
+  const isAdmin = myRoles.includes("admin");
 
   const addMut = useMutation({
     mutationFn: () => addAlias({ data: { employee_id: id, alias_name: newAlias } }),
@@ -92,7 +96,7 @@ function EmployeeDetail() {
           <TabsTrigger value="lancamentos">Lançamentos</TabsTrigger>
           <TabsTrigger value="parcelas">Parcelas</TabsTrigger>
           <TabsTrigger value="ledger">Ledger mensal</TabsTrigger>
-          <TabsTrigger value="aliases">Aliases ({aliases.length})</TabsTrigger>
+          {isAdmin && <TabsTrigger value="aliases">Aliases ({aliases.length})</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="resumo" className="space-y-4 mt-4">
@@ -223,6 +227,7 @@ function EmployeeDetail() {
           </CardContent></Card>
         </TabsContent>
 
+        {isAdmin && (
         <TabsContent value="aliases" className="mt-4 space-y-4">
           <Card>
             <CardHeader>
@@ -250,6 +255,7 @@ function EmployeeDetail() {
             </CardContent>
           </Card>
         </TabsContent>
+        )}
       </Tabs>
     </div>
   );
