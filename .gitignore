@@ -31,6 +31,10 @@ supabase/.temp/
 # Data export used for one-off migration (contains employee PII)
 /csv/
 
+# PDFs de teste da UNIMED (contêm dados de colaboradores) e harnesses locais
+*.pdf
+_pdf_*.mjs
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
