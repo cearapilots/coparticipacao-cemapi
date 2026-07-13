@@ -76,6 +76,14 @@ function OpeningBalancePage() {
         <p className="text-sm text-muted-foreground">Base anterior já existente — não passa pela regra nova de parcelamento.</p>
       </div>
 
+      <Alert variant="destructive">
+        <Info className="h-4 w-4" />
+        <AlertDescription>
+          Ferramenta usada apenas para a carga inicial de 07/2026. Não faz parte do fluxo mensal —
+          daqui em diante os valores vêm do PDF mensal da UNIMED (tela Importações).
+        </AlertDescription>
+      </Alert>
+
       <Alert>
         <Info className="h-4 w-4" />
         <AlertDescription>
