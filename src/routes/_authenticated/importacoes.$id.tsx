@@ -13,13 +13,13 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Pencil } from "lucide-react";
 import { toast } from "sonner";
-import { centsToMoney } from "@/lib/calc/money";
+import { centsToMoney, centsToDecimalString, moneyToCents } from "@/lib/calc/money";
 import { formatMonthPtBR, toMonthISO } from "@/lib/calc/date";
 import {
   getImportBatchDetails, updateImportItemMatch, ignoreImportItem,
-  confirmImportBatch, cancelImportBatch,
+  confirmImportBatch, cancelImportBatch, updateImportItemAmount,
 } from "@/lib/imports.functions";
 
 export const Route = createFileRoute("/_authenticated/importacoes/$id")({
@@ -47,6 +47,7 @@ function BatchDetail() {
   const ignoreFn = useServerFn(ignoreImportItem);
   const confirmFn = useServerFn(confirmImportBatch);
   const cancelFn = useServerFn(cancelImportBatch);
+  const correctAmountFn = useServerFn(updateImportItemAmount);
 
   const { data, isLoading } = useQuery({
     queryKey: ["import-batch", id],
@@ -55,6 +56,8 @@ function BatchDetail() {
 
   const [empSearch, setEmpSearch] = useState("");
   const [ignoreReason, setIgnoreReason] = useState<Record<string, string>>({});
+  const [amountDraft, setAmountDraft] = useState<Record<string, string>>({});
+  const [amountReason, setAmountReason] = useState<Record<string, string>>({});
 
   const mMatch = useMutation({
     mutationFn: (v: { item_id: string; employee_id: string | null }) =>
@@ -66,6 +69,15 @@ function BatchDetail() {
     mutationFn: (v: { item_id: string; ignore: boolean; reason?: string }) =>
       ignoreFn({ data: v }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["import-batch", id] }),
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const mCorrectAmount = useMutation({
+    mutationFn: (v: { item_id: string; corrected_amount_cents: number | null; reason: string }) =>
+      correctAmountFn({ data: v }),
+    onSuccess: () => {
+      toast.success("Valor atualizado.");
+      qc.invalidateQueries({ queryKey: ["import-batch", id] });
+    },
     onError: (e: Error) => toast.error(e.message),
   });
   const mConfirm = useMutation({
@@ -90,9 +102,12 @@ function BatchDetail() {
     empSearch ? e.full_name.toLowerCase().includes(empSearch.toLowerCase()) : true,
   );
 
+  const effectiveAmount = (it: { amount_cents: number | null; corrected_amount_cents?: number | null }) =>
+    it.corrected_amount_cents ?? it.amount_cents ?? 0;
+
   const sumActive = items
     .filter((it) => it.review_status !== "ignored")
-    .reduce((a, b) => a + (b.amount_cents ?? 0), 0);
+    .reduce((a, b) => a + effectiveAmount(b), 0);
   const pending = items.filter(
     (it) => it.review_status !== "ignored" &&
       (it.match_status === "not_found" || it.match_status === "needs_review" || !it.matched_employee_id),
@@ -220,10 +235,95 @@ function BatchDetail() {
                     <TableCell className="text-xs">
                       {it.match_confidence != null ? `${Math.round(Number(it.match_confidence) * 100)}%` : "—"}
                     </TableCell>
-                    <TableCell className="text-right">{centsToMoney(it.amount_cents ?? 0)}</TableCell>
+                    <TableCell className="text-right">
+                      {it.corrected_amount_cents != null ? (
+                        <div>
+                          <div className="text-xs text-muted-foreground line-through">{centsToMoney(it.amount_cents ?? 0)}</div>
+                          <div className="font-semibold">{centsToMoney(it.corrected_amount_cents)}</div>
+                          <Badge variant="secondary" className="text-[10px]">Corrigido</Badge>
+                        </div>
+                      ) : (
+                        <div>{centsToMoney(it.amount_cents ?? 0)}</div>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {!isFinal && (
                         <div className="flex gap-1">
+                          <Dialog
+                            onOpenChange={(open) => {
+                              if (open) {
+                                setAmountDraft((s) => ({
+                                  ...s,
+                                  [it.id]: centsToDecimalString(it.corrected_amount_cents ?? it.amount_cents ?? 0),
+                                }));
+                                setAmountReason((s) => ({ ...s, [it.id]: "" }));
+                              }
+                            }}
+                          >
+                            <DialogTrigger asChild>
+                              <Button variant="outline" size="sm"><Pencil className="h-3 w-3 mr-1" />Editar valor</Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Editar valor extraído</DialogTitle>
+                                <DialogDescription>
+                                  Titular no PDF: <b>{it.raw_employee_name}</b>
+                                  {matchedEmp && <> · Colaborador: <b>{matchedEmp.full_name}</b></>}
+                                </DialogDescription>
+                              </DialogHeader>
+                              <div className="space-y-3">
+                                <div className="text-sm text-muted-foreground">
+                                  Valor extraído originalmente: <b>{centsToMoney(it.amount_cents ?? 0)}</b>
+                                </div>
+                                <div>
+                                  <label className="text-sm font-medium">Valor corrigido (R$)</label>
+                                  <Input
+                                    value={amountDraft[it.id] ?? ""}
+                                    onChange={(e) => setAmountDraft((s) => ({ ...s, [it.id]: e.target.value }))}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-sm font-medium">Motivo da correção (obrigatório)</label>
+                                  <Textarea
+                                    value={amountReason[it.id] ?? ""}
+                                    onChange={(e) => setAmountReason((s) => ({ ...s, [it.id]: e.target.value }))}
+                                    placeholder="Ex: parser leu errado o valor de Total da Família, conferido no PDF original."
+                                  />
+                                </div>
+                              </div>
+                              <DialogFooter className="flex-wrap gap-2">
+                                {it.corrected_amount_cents != null && (
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                      const reason = amountReason[it.id]?.trim();
+                                      if (!reason || reason.length < 10) {
+                                        toast.error("Informe um motivo (mín. 10 caracteres) para reverter ao valor original.");
+                                        return;
+                                      }
+                                      mCorrectAmount.mutate({ item_id: it.id, corrected_amount_cents: null, reason });
+                                    }}
+                                  >
+                                    Reverter para valor original
+                                  </Button>
+                                )}
+                                <Button
+                                  onClick={() => {
+                                    const reason = amountReason[it.id]?.trim();
+                                    if (!reason || reason.length < 10) {
+                                      toast.error("Informe um motivo (mín. 10 caracteres) para a correção.");
+                                      return;
+                                    }
+                                    const cents = moneyToCents(amountDraft[it.id] ?? "0");
+                                    mCorrectAmount.mutate({ item_id: it.id, corrected_amount_cents: cents, reason });
+                                  }}
+                                  disabled={mCorrectAmount.isPending}
+                                >
+                                  Salvar correção
+                                </Button>
+                              </DialogFooter>
+                            </DialogContent>
+                          </Dialog>
                           <Dialog>
                             <DialogTrigger asChild>
                               <Button variant="outline" size="sm">Associar</Button>
