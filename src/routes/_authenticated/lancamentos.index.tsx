@@ -9,7 +9,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input";
 import { centsToMoney } from "@/lib/calc/money";
 import { formatMonthPtBR } from "@/lib/calc/date";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, AlertTriangle } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useState } from "react";
 
 export const Route = createFileRoute("/_authenticated/lancamentos/")({
@@ -31,13 +32,22 @@ function LaunchesIndex() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-semibold">Lançamentos</h1>
+          <h1 className="text-2xl font-semibold">Ajustes manuais</h1>
           <p className="text-sm text-muted-foreground">Últimos 100 lançamentos de coparticipação.</p>
         </div>
         <Button asChild>
           <Link to="/lancamentos/novo"><Plus className="h-4 w-4 mr-2" />Novo lançamento</Link>
         </Button>
       </div>
+
+      <Alert>
+        <AlertTriangle className="h-4 w-4" />
+        <AlertTitle>Ferramenta administrativa, não o fluxo mensal padrão</AlertTitle>
+        <AlertDescription>
+          A partir de agosto/2026 os valores mensais entram pelo PDF da UNIMED (tela Importações).
+          Use lançamento manual apenas para correções e ajustes pontuais.
+        </AlertDescription>
+      </Alert>
 
       <Card>
         <CardHeader>
