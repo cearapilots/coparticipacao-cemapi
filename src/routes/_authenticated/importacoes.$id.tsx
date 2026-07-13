@@ -49,7 +49,7 @@ function BatchDetail() {
   const cancelFn = useServerFn(cancelImportBatch);
   const correctAmountFn = useServerFn(updateImportItemAmount);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ["import-batch", id],
     queryFn: () => getFn({ data: { batch_id: id } }),
   });
@@ -95,6 +95,20 @@ function BatchDetail() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  if (isError) {
+    return (
+      <div className="space-y-4">
+        <div className="text-xs text-muted-foreground">
+          <Link to="/importacoes" className="hover:underline">← Importações</Link>
+        </div>
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Não foi possível carregar este lote</AlertTitle>
+          <AlertDescription>{(error as Error)?.message ?? "Erro desconhecido. Tente novamente."}</AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
   if (isLoading || !data) return <p className="text-sm text-muted-foreground">Carregando...</p>;
   const { batch, items, employees } = data;
 
@@ -205,6 +219,17 @@ function BatchDetail() {
       <Card>
         <CardHeader><CardTitle className="text-base">Itens ({items.length})</CardTitle></CardHeader>
         <CardContent>
+          {items.length === 0 ? (
+            <Alert>
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Nenhum item extraído deste PDF</AlertTitle>
+              <AlertDescription>
+                O parser não encontrou titulares/valores no texto extraído. Verifique os avisos acima,
+                confira o texto extraído (cole manualmente se necessário) e considere cancelar este lote
+                e tentar novamente.
+              </AlertDescription>
+            </Alert>
+          ) : (
           <Table>
             <TableHeader><TableRow>
               <TableHead>Nome no PDF</TableHead>
@@ -390,6 +415,7 @@ function BatchDetail() {
               })}
             </TableBody>
           </Table>
+          )}
         </CardContent>
       </Card>
     </div>
