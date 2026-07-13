@@ -33,17 +33,21 @@ function reconstructPageText(items: unknown[]): string {
       y: Number(it.transform?.[5] ?? 0),
     }));
 
-  const Y_TOLERANCE = 2;
-  const lines: PositionedItem[][] = [];
+  // Agrupa por Y arredondado (chave exata, não por comparação incremental
+  // contra o 1º item da linha — isso evitava "deriva": um item levemente
+  // deslocado puxava a linha inteira e acabava colando duas linhas visuais
+  // distintas em uma só, embaralhando "Titular"/"Total da Família" de novo.
+  const buckets = new Map<number, PositionedItem[]>();
   for (const item of positioned) {
-    const line = lines.find((l) => Math.abs(l[0].y - item.y) <= Y_TOLERANCE);
-    if (line) line.push(item);
-    else lines.push([item]);
+    const key = Math.round(item.y);
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(item);
+    else buckets.set(key, [item]);
   }
   // Y maior = mais acima na página (origem do PDF é embaixo-esquerda)
-  lines.sort((a, b) => b[0].y - a[0].y);
+  const lines = Array.from(buckets.entries()).sort((a, b) => b[0] - a[0]);
   return lines
-    .map((line) => line.slice().sort((a, b) => a.x - b.x).map((it) => it.str).join(" "))
+    .map(([, line]) => line.slice().sort((a, b) => a.x - b.x).map((it) => it.str).join(" "))
     .join("\n");
 }
 
