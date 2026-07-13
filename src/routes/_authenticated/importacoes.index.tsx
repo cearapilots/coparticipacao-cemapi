@@ -11,12 +11,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Upload, FileText, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Upload, FileText, AlertTriangle, CheckCircle2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { centsToMoney } from "@/lib/calc/money";
 import { formatMonthPtBR, toMonthISO } from "@/lib/calc/date";
 import { extractPdfText, sha256Hex } from "@/lib/pdf-client";
-import { createImportBatchFromPdf, listImportBatches, getImportMarker } from "@/lib/imports.functions";
+import { createImportBatchFromPdf, listImportBatches, getImportMarker, deleteImportBatch } from "@/lib/imports.functions";
 import { getMyRoles } from "@/lib/settings.functions";
 
 export const Route = createFileRoute("/_authenticated/importacoes/")({
@@ -42,11 +42,18 @@ function ImportsPage() {
   const createFn = useServerFn(createImportBatchFromPdf);
   const markerFn = useServerFn(getImportMarker);
   const rolesFn = useServerFn(getMyRoles);
+  const deleteFn = useServerFn(deleteImportBatch);
 
   const { data: batches = [] } = useQuery({ queryKey: ["import-batches"], queryFn: () => listFn() });
   const { data: marker } = useQuery({ queryKey: ["import-marker"], queryFn: () => markerFn() });
   const { data: myRoles = [] } = useQuery({ queryKey: ["my-roles"], queryFn: () => rolesFn() });
   const isAdmin = myRoles.includes("admin");
+
+  const deleteMut = useMutation({
+    mutationFn: (batchId: string) => deleteFn({ data: { batch_id: batchId } }),
+    onSuccess: () => { toast.success("Lote apagado."); qc.invalidateQueries({ queryKey: ["import-batches"] }); },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
   const [competence, setCompetence] = useState(() => {
     const d = new Date();
@@ -304,10 +311,26 @@ function ImportsPage() {
                     <TableCell className="text-right">{b.total_items ?? 0}</TableCell>
                     <TableCell className="text-right">{centsToMoney(b.total_amount_cents ?? 0)}</TableCell>
                     <TableCell>{statusBadge(b.status)}</TableCell>
-                    <TableCell>
+                    <TableCell className="text-right whitespace-nowrap">
                       <Button variant="ghost" size="sm" asChild>
                         <Link to="/importacoes/$id" params={{ id: b.id }}>Abrir</Link>
                       </Button>
+                      {b.status !== "confirmed" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          disabled={deleteMut.isPending}
+                          onClick={() => {
+                            if (confirm(`Apagar definitivamente o lote "${b.source_file_name}"? Esta ação não pode ser desfeita.`)) {
+                              deleteMut.mutate(b.id);
+                            }
+                          }}
+                          title="Apagar lote"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

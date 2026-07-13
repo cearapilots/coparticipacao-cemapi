@@ -175,6 +175,7 @@ export const getMonthComposition = createServerFn({ method: "GET" })
         .select("id, competence_month, due_month, installment_number, installment_count, scheduled_amount_cents, installment_plans(source_type, notes)")
         .eq("employee_id", data.employee_id)
         .eq("due_month", month)
+        .neq("status", "superseded")
         .order("competence_month"),
       context.supabase
         .from("payroll_monthly_ledger")

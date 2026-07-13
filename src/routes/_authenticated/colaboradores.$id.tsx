@@ -8,13 +8,16 @@ import {
   generateEmployeeStatementPdf,
   getEmployeeStatementDownloadUrl,
   listEmployeeStatementExports,
+  deleteEmployeeStatementExport,
 } from "@/lib/employee-statements.functions";
+import { previewRenegotiation, renegotiateInstallments } from "@/lib/renegotiation.functions";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -33,6 +36,7 @@ function sourceLabel(s: string) {
     : s === "opening_balance" ? "Saldo inicial"
     : s === "adjustment" ? "Ajuste"
     : s === "monthly_usage" ? "Lançamento"
+    : s === "renegotiation" ? "Re-parcelamento"
     : s === "import" ? "Importação" : s;
 }
 
@@ -43,6 +47,7 @@ function statusBadge(s: string) {
     exported: { label: "Exportado", variant: "default" },
     confirmed: { label: "Confirmado", variant: "secondary" },
     active: { label: "Ativo", variant: "default" },
+    superseded: { label: "Substituída", variant: "outline" },
   };
   const cfg = map[s] ?? { label: s, variant: "outline" };
   return <Badge variant={cfg.variant}>{cfg.label}</Badge>;
@@ -57,6 +62,9 @@ function EmployeeDetail() {
   const fetchStatementExports = useServerFn(listEmployeeStatementExports);
   const generateStatement = useServerFn(generateEmployeeStatementPdf);
   const getStatementUrl = useServerFn(getEmployeeStatementDownloadUrl);
+  const deleteStatement = useServerFn(deleteEmployeeStatementExport);
+  const previewReneg = useServerFn(previewRenegotiation);
+  const doReneg = useServerFn(renegotiateInstallments);
   const qc = useQueryClient();
   const [newAlias, setNewAlias] = useState("");
   const [pdfOpen, setPdfOpen] = useState(false);
@@ -65,6 +73,9 @@ function EmployeeDetail() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
   const [lastResult, setLastResult] = useState<{ download_url: string; file_name: string } | null>(null);
+  const [renegOpen, setRenegOpen] = useState(false);
+  const [renegCount, setRenegCount] = useState(3);
+  const [renegReason, setRenegReason] = useState("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["employee-detail", id],
@@ -104,6 +115,29 @@ function EmployeeDetail() {
   const downloadMut = useMutation({
     mutationFn: (exportId: string) => getStatementUrl({ data: { export_id: exportId } }),
     onSuccess: (r) => window.open(r.download_url, "_blank"),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deleteStatementMut = useMutation({
+    mutationFn: (exportId: string) => deleteStatement({ data: { export_id: exportId } }),
+    onSuccess: () => { toast.success("Demonstrativo apagado."); qc.invalidateQueries({ queryKey: ["statement-exports", id] }); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const renegPreviewQuery = useQuery({
+    queryKey: ["reneg-preview", id, renegCount, renegOpen],
+    queryFn: () => previewReneg({ data: { employee_id: id, installment_count: renegCount } }),
+    enabled: renegOpen && isAdminOrRh && renegCount >= 1,
+  });
+
+  const renegMut = useMutation({
+    mutationFn: () => doReneg({ data: { employee_id: id, installment_count: renegCount, reason: renegReason.trim() } }),
+    onSuccess: (r) => {
+      toast.success(`Saldo re-parcelado em ${r.installment_count}x a partir de ${formatMonthPtBR(r.first_due_month)}.`);
+      setRenegOpen(false);
+      setRenegReason("");
+      qc.invalidateQueries({ queryKey: ["employee-detail", id] });
+    },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -207,20 +241,39 @@ function EmployeeDetail() {
                 {statementExports.length === 0 ? (
                   <span className="text-muted-foreground">Nenhum demonstrativo gerado ainda.</span>
                 ) : (
-                  <div className="flex items-center justify-between">
-                    <div>
-                      Último gerado em{" "}
-                      <b>{new Date(statementExports[0].generated_at).toLocaleString("pt-BR")}</b>
-                      {" "}— referência {formatMonthPtBR(toMonthISO(statementExports[0].reference_month))}
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={downloadMut.isPending}
-                      onClick={() => downloadMut.mutate(statementExports[0].id)}
-                    >
-                      <Download className="h-4 w-4 mr-1" />Baixar novamente
-                    </Button>
+                  <div className="space-y-1">
+                    {statementExports.map((exp: any) => (
+                      <div key={exp.id} className="flex items-center justify-between border-b last:border-b-0 py-1.5">
+                        <div>
+                          Gerado em <b>{new Date(exp.generated_at).toLocaleString("pt-BR")}</b>
+                          {" "}— referência {formatMonthPtBR(toMonthISO(exp.reference_month))}
+                        </div>
+                        <div className="flex gap-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={downloadMut.isPending}
+                            onClick={() => downloadMut.mutate(exp.id)}
+                          >
+                            <Download className="h-4 w-4 mr-1" />Baixar
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            disabled={deleteStatementMut.isPending}
+                            onClick={() => {
+                              if (confirm("Apagar este demonstrativo? O PDF será removido permanentemente.")) {
+                                deleteStatementMut.mutate(exp.id);
+                              }
+                            }}
+                            title="Apagar demonstrativo"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </CardContent>
@@ -257,7 +310,21 @@ function EmployeeDetail() {
         </TabsContent>
 
         <TabsContent value="parcelas" className="mt-4">
-          <Card><CardContent className="pt-6">
+          <Card>
+            {isAdminOrRh && (
+              <CardHeader>
+                <div className="flex flex-wrap gap-3 justify-between items-center">
+                  <div>
+                    <CardTitle className="text-base">Parcelas</CardTitle>
+                    <CardDescription>Re-parcelar redistribui o saldo restante (meses abertos) em outro número de parcelas.</CardDescription>
+                  </div>
+                  <Button variant="outline" onClick={() => { setRenegReason(""); setRenegOpen(true); }}>
+                    Re-parcelar saldo
+                  </Button>
+                </div>
+              </CardHeader>
+            )}
+            <CardContent className="pt-6">
             <Table>
               <TableHeader><TableRow>
                 <TableHead>Competência</TableHead>
@@ -271,12 +338,13 @@ function EmployeeDetail() {
                 {installment_items.length === 0 && <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-6">Nenhuma parcela</TableCell></TableRow>}
                 {installment_items.map((it: any) => {
                   const plan = installment_plans.find((p: any) => p.id === it.installment_plan_id);
+                  const superseded = it.status === "superseded";
                   return (
-                    <TableRow key={it.id}>
+                    <TableRow key={it.id} className={superseded ? "opacity-50" : ""}>
                       <TableCell>{it.competence_month ? formatMonthPtBR(it.competence_month) : "—"}</TableCell>
                       <TableCell className="font-medium">{formatMonthPtBR(it.due_month)}</TableCell>
                       <TableCell className="text-center">{it.installment_number}/{it.installment_count}</TableCell>
-                      <TableCell className="text-right">{centsToMoney(it.scheduled_amount_cents)}</TableCell>
+                      <TableCell className={`text-right ${superseded ? "line-through" : ""}`}>{centsToMoney(it.scheduled_amount_cents)}</TableCell>
                       <TableCell><Badge variant="secondary">{sourceLabel(plan?.source_type ?? "")}</Badge></TableCell>
                       <TableCell>{statusBadge(it.status)}</TableCell>
                     </TableRow>
@@ -349,6 +417,91 @@ function EmployeeDetail() {
         </TabsContent>
         )}
       </Tabs>
+
+      <Dialog open={renegOpen} onOpenChange={setRenegOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Re-parcelar saldo — {employee.full_name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Alert>
+              <Info className="h-4 w-4" />
+              <AlertDescription>
+                Redistribui apenas o <b>saldo restante em meses abertos</b>. Parcelas já descontadas
+                em meses fechados não são afetadas. As parcelas abertas atuais são substituídas.
+              </AlertDescription>
+            </Alert>
+
+            <div className="text-sm border rounded-md p-3 bg-muted/30 space-y-1">
+              <div className="flex justify-between">
+                <span>Saldo em aberto a re-parcelar:</span>
+                <b>{centsToMoney(renegPreviewQuery.data?.remaining_cents ?? 0)}</b>
+              </div>
+              {renegPreviewQuery.data && (
+                <div className="flex justify-between text-muted-foreground text-xs">
+                  <span>Primeira nova parcela em:</span>
+                  <span>{formatMonthPtBR(renegPreviewQuery.data.first_due_month)}</span>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <Label>Número de parcelas</Label>
+              <Input
+                type="number"
+                min={1}
+                max={24}
+                value={renegCount}
+                onChange={(e) => setRenegCount(Math.max(1, Math.min(24, Number(e.target.value) || 1)))}
+                className="w-32"
+              />
+            </div>
+
+            {renegPreviewQuery.data && renegPreviewQuery.data.remaining_cents > 0 && (
+              <div className="max-h-48 overflow-y-auto border rounded-md">
+                <Table>
+                  <TableHeader><TableRow>
+                    <TableHead>Parcela</TableHead>
+                    <TableHead>Mês</TableHead>
+                    <TableHead className="text-right">Valor</TableHead>
+                  </TableRow></TableHeader>
+                  <TableBody>
+                    {renegPreviewQuery.data.items.map((it: any) => (
+                      <TableRow key={it.installment_number}>
+                        <TableCell>{it.installment_number}/{renegCount}</TableCell>
+                        <TableCell>{formatMonthPtBR(it.due_month)}</TableCell>
+                        <TableCell className="text-right">{centsToMoney(it.amount_cents)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            <div>
+              <Label>Justificativa (obrigatória)</Label>
+              <Textarea
+                value={renegReason}
+                onChange={(e) => setRenegReason(e.target.value)}
+                placeholder="Ex: parcelas muito altas para a renda do colaborador, acordado re-parcelamento em mais vezes."
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenegOpen(false)}>Cancelar</Button>
+            <Button
+              onClick={() => {
+                if (renegReason.trim().length < 10) { toast.error("Informe uma justificativa (mín. 10 caracteres)."); return; }
+                if (!renegPreviewQuery.data || renegPreviewQuery.data.remaining_cents <= 0) { toast.error("Não há saldo em aberto para re-parcelar."); return; }
+                renegMut.mutate();
+              }}
+              disabled={renegMut.isPending}
+            >
+              {renegMut.isPending ? "Re-parcelando..." : "Confirmar re-parcelamento"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={pdfOpen} onOpenChange={setPdfOpen}>
         <DialogContent>

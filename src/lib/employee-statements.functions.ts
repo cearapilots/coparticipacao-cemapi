@@ -223,3 +223,46 @@ export const listEmployeeStatementExports = createServerFn({ method: "POST" })
     if (error) throw error;
     return rows ?? [];
   });
+
+// Remove um demonstrativo gerado: apaga o PDF do Storage + o registro.
+// O demonstrativo é só um arquivo de conferência/envio — não é dado
+// financeiro, então pode ser apagado livremente por admin/rh.
+export const deleteEmployeeStatementExport = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ export_id: z.string().uuid() }).parse(d))
+  .handler(async ({ context, data }) => {
+    const { requireAnyRole } = await import("./authz.server");
+    await requireAnyRole(context.supabase, context.userId, ["admin", "rh"]);
+
+    const { data: row, error } = await context.supabase
+      .from("employee_statement_exports")
+      .select("id, employee_id, file_storage_path")
+      .eq("id", data.export_id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!row) throw new Error("Demonstrativo não encontrado.");
+
+    if (row.file_storage_path) {
+      try {
+        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        await supabaseAdmin.storage.from(BUCKET).remove([row.file_storage_path]);
+      } catch (e) {
+        console.warn("Falha ao remover PDF do storage (seguindo com a exclusão do registro):", (e as Error).message);
+      }
+    }
+
+    const { error: delErr } = await context.supabase
+      .from("employee_statement_exports")
+      .delete()
+      .eq("id", data.export_id);
+    if (delErr) throw delErr;
+
+    const { logAudit } = await import("./audit.server");
+    await logAudit(context.supabase, context.userId, {
+      action: "employee_statement.delete",
+      entityType: "employee_statement_export",
+      entityId: data.export_id,
+      beforeSnapshot: { employee_id: row.employee_id, file_storage_path: row.file_storage_path },
+    });
+    return { ok: true };
+  });

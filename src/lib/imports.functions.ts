@@ -439,6 +439,53 @@ export const cancelImportBatch = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+// ------------------- DELETE (hard delete de lote NÃO confirmado) -------------------
+// Remove definitivamente o lote e seus itens (cascade) + o arquivo no Storage.
+// Bloqueado para lotes 'confirmed' (esses já geraram lançamentos financeiros e
+// devem ser preservados para auditoria). Ideal para limpar lotes de
+// teste/erro/cancelados de "Lotes recentes".
+export const deleteImportBatch = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ batch_id: z.string().uuid() }).parse(d))
+  .handler(async ({ context, data }) => {
+    const { requireAnyRole } = await import("./authz.server");
+    await requireAnyRole(context.supabase, context.userId, ["admin", "rh"]);
+
+    const { data: batch, error: bErr } = await context.supabase
+      .from("import_batches")
+      .select("id, status, source_file_storage_path, source_file_name")
+      .eq("id", data.batch_id)
+      .maybeSingle();
+    if (bErr) throw bErr;
+    if (!batch) throw new Error("Lote não encontrado.");
+    if (batch.status === "confirmed") {
+      throw new Error("Não é possível apagar um lote confirmado — ele já gerou lançamentos. Esses lotes ficam preservados para auditoria.");
+    }
+
+    // Remove o PDF do bucket privado (usa service role: já validamos o papel acima).
+    if (batch.source_file_storage_path) {
+      try {
+        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        await supabaseAdmin.storage.from("unimed-pdfs").remove([batch.source_file_storage_path]);
+      } catch (e) {
+        console.warn("Falha ao remover PDF do storage (seguindo com a exclusão do lote):", (e as Error).message);
+      }
+    }
+
+    // import_items caem por ON DELETE CASCADE.
+    const { error: delErr } = await context.supabase.from("import_batches").delete().eq("id", data.batch_id);
+    if (delErr) throw delErr;
+
+    const { logAudit } = await import("./audit.server");
+    await logAudit(context.supabase, context.userId, {
+      action: "import.batch.delete",
+      entityType: "import_batch",
+      entityId: data.batch_id,
+      beforeSnapshot: { status: batch.status, source_file_name: batch.source_file_name },
+    });
+    return { ok: true };
+  });
+
 // ------------------- CONFIRM BATCH -------------------
 
 export const confirmImportBatch = createServerFn({ method: "POST" })

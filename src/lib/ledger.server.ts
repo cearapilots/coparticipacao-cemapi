@@ -42,11 +42,14 @@ export async function recalculateEmployeeLedger(
     .maybeSingle();
   let carryoverIn = prevRow?.carryover_out_cents ?? 0;
 
-  // Carrega parcelas com due_month >= fromMonth
+  // Carrega parcelas com due_month >= fromMonth.
+  // Ignora parcelas 'superseded' (substituídas por um re-parcelamento) — elas
+  // ficam no banco apenas para histórico/auditoria, não contam no cálculo.
   const { data: items, error: itemsErr } = await supabase
     .from("installment_plan_items")
     .select("due_month, scheduled_amount_cents")
     .eq("employee_id", employeeId)
+    .neq("status", "superseded")
     .gte("due_month", fromMonth);
   if (itemsErr) throw itemsErr;
 
