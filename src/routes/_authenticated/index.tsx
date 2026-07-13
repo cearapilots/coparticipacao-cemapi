@@ -1,8 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useSuspenseQuery, useQuery } from "@tanstack/react-query";
+import { useSuspenseQuery, useQuery, useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { getDashboard } from "@/lib/dashboard.functions";
+import { getMyRoles } from "@/lib/settings.functions";
+import { generateEmployeeStatementPdf } from "@/lib/employee-statements.functions";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { centsToMoney } from "@/lib/calc/money";
 import { formatMonthPtBR, toMonthISO } from "@/lib/calc/date";
 import { useState } from "react";
@@ -10,6 +13,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { FileDown } from "lucide-react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/")({
   component: Dashboard,
@@ -21,9 +26,23 @@ function Dashboard() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
   const fetchDashboard = useServerFn(getDashboard);
+  const fetchRoles = useServerFn(getMyRoles);
+  const generateStatement = useServerFn(generateEmployeeStatementPdf);
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard", month],
     queryFn: () => fetchDashboard({ data: { month: toMonthISO(month) } }),
+  });
+  const { data: myRoles = [] } = useQuery({ queryKey: ["my-roles"], queryFn: () => fetchRoles() });
+  const isAdminOrRh = myRoles.includes("admin") || myRoles.includes("rh");
+
+  const exportMut = useMutation({
+    mutationFn: (employeeId: string) =>
+      generateStatement({ data: { employee_id: employeeId, reference_month: data!.month } }),
+    onSuccess: (r) => {
+      window.open(r.download_url, "_blank");
+      toast.success(`PDF gerado: ${r.file_name}`);
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   return (
@@ -72,23 +91,34 @@ function Dashboard() {
                 <TableHeader><TableRow>
                   <TableHead>Colaborador</TableHead>
                   <TableHead className="text-right">Valor a descontar</TableHead>
-                  <TableHead>Situação</TableHead>
+                  {isAdminOrRh && <TableHead className="text-right">Exportar PDF</TableHead>}
                 </TableRow></TableHeader>
                 <TableBody>
                   {data.deduct_breakdown.length === 0 && (
-                    <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground text-sm py-6">Nenhum colaborador com desconto neste mês</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={isAdminOrRh ? 3 : 2} className="text-center text-muted-foreground text-sm py-6">Nenhum colaborador com desconto neste mês</TableCell></TableRow>
                   )}
                   {data.deduct_breakdown.map((r: any) => (
                     <TableRow key={r.employee_id}>
                       <TableCell className="font-medium">
                         {r.full_name}
                         {r.payroll_code && <span className="text-xs text-muted-foreground ml-1">({r.payroll_code})</span>}
+                        {r.has_carryover && <Badge variant="outline" className="ml-2">Carryover</Badge>}
+                        {r.capped && <Badge variant="destructive" className="ml-1">Atingiu teto</Badge>}
                       </TableCell>
                       <TableCell className="text-right font-semibold">{centsToMoney(r.amount_to_deduct_cents)}</TableCell>
-                      <TableCell className="space-x-1">
-                        {r.has_carryover && <Badge variant="outline">Carryover</Badge>}
-                        {r.capped && <Badge variant="destructive">Atingiu teto</Badge>}
-                      </TableCell>
+                      {isAdminOrRh && (
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={exportMut.isPending && exportMut.variables === r.employee_id}
+                            onClick={() => exportMut.mutate(r.employee_id)}
+                          >
+                            <FileDown className="h-4 w-4 mr-1" />
+                            {exportMut.isPending && exportMut.variables === r.employee_id ? "Gerando..." : "Exportar PDF"}
+                          </Button>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -97,7 +127,7 @@ function Dashboard() {
                     <TableRow>
                       <TableCell className="font-semibold">Total ({data.deduct_breakdown.length} colaborador(es))</TableCell>
                       <TableCell className="text-right font-semibold">{centsToMoney(data.total_deduct_cents)}</TableCell>
-                      <TableCell></TableCell>
+                      {isAdminOrRh && <TableCell></TableCell>}
                     </TableRow>
                   </tfoot>
                 )}
