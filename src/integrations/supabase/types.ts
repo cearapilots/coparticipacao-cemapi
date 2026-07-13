@@ -112,6 +112,47 @@ export type Database = {
           },
         ]
       }
+      employee_statement_exports: {
+        Row: {
+          created_at: string
+          employee_id: string
+          file_storage_path: string | null
+          generated_at: string
+          generated_by: string | null
+          id: string
+          reference_month: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          employee_id: string
+          file_storage_path?: string | null
+          generated_at?: string
+          generated_by?: string | null
+          id?: string
+          reference_month: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          employee_id?: string
+          file_storage_path?: string | null
+          generated_at?: string
+          generated_by?: string | null
+          id?: string
+          reference_month?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_statement_exports_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       employees: {
         Row: {
           admission_date: string | null
