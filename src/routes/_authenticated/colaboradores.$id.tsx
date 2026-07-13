@@ -4,16 +4,24 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getEmployeeDetail } from "@/lib/employee-detail.functions";
 import { upsertAlias, deleteAlias } from "@/lib/employees.functions";
 import { getMyRoles } from "@/lib/settings.functions";
+import {
+  generateEmployeeStatementPdf,
+  getEmployeeStatementDownloadUrl,
+  listEmployeeStatementExports,
+} from "@/lib/employee-statements.functions";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { centsToMoney } from "@/lib/calc/money";
 import { formatMonthPtBR, toMonthISO } from "@/lib/calc/date";
-import { useState } from "react";
-import { Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Trash2, FileDown, Download, Info } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/colaboradores/$id")({
@@ -46,8 +54,17 @@ function EmployeeDetail() {
   const addAlias = useServerFn(upsertAlias);
   const rmAlias = useServerFn(deleteAlias);
   const fetchRoles = useServerFn(getMyRoles);
+  const fetchStatementExports = useServerFn(listEmployeeStatementExports);
+  const generateStatement = useServerFn(generateEmployeeStatementPdf);
+  const getStatementUrl = useServerFn(getEmployeeStatementDownloadUrl);
   const qc = useQueryClient();
   const [newAlias, setNewAlias] = useState("");
+  const [pdfOpen, setPdfOpen] = useState(false);
+  const [pdfMonth, setPdfMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [lastResult, setLastResult] = useState<{ download_url: string; file_name: string } | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["employee-detail", id],
@@ -55,6 +72,13 @@ function EmployeeDetail() {
   });
   const { data: myRoles = [] } = useQuery({ queryKey: ["my-roles"], queryFn: () => fetchRoles() });
   const isAdmin = myRoles.includes("admin");
+  const isAdminOrRh = isAdmin || myRoles.includes("rh");
+
+  const { data: statementExports = [] } = useQuery({
+    queryKey: ["statement-exports", id],
+    queryFn: () => fetchStatementExports({ data: { employee_id: id } }),
+    enabled: isAdminOrRh,
+  });
 
   const addMut = useMutation({
     mutationFn: () => addAlias({ data: { employee_id: id, alias_name: newAlias } }),
@@ -66,6 +90,37 @@ function EmployeeDetail() {
     mutationFn: (aliasId: string) => rmAlias({ data: { id: aliasId } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["employee-detail", id] }),
   });
+
+  const generateMut = useMutation({
+    mutationFn: () => generateStatement({ data: { employee_id: id, reference_month: toMonthISO(pdfMonth) } }),
+    onSuccess: (r) => {
+      setLastResult({ download_url: r.download_url, file_name: r.file_name });
+      toast.success(r.has_open_balance ? "PDF gerado com sucesso." : "PDF gerado (colaborador sem saldo em aberto).");
+      qc.invalidateQueries({ queryKey: ["statement-exports", id] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const downloadMut = useMutation({
+    mutationFn: (exportId: string) => getStatementUrl({ data: { export_id: exportId } }),
+    onSuccess: (r) => window.open(r.download_url, "_blank"),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const pdfPreview = useMemo(() => {
+    if (!data) return null;
+    const refMonth = toMonthISO(pdfMonth);
+    const futureItems = data.installment_items.filter((i: any) => toMonthISO(i.due_month) >= refMonth);
+    const totalCents = futureItems.reduce((s: number, i: any) => s + (i.scheduled_amount_cents ?? 0), 0);
+    const monthsCount = new Set(futureItems.map((i: any) => toMonthISO(i.due_month))).size;
+    const ledgerRow = data.ledger.find((r: any) => toMonthISO(r.payroll_month) === refMonth);
+    return {
+      total_cents: totalCents,
+      months_count: monthsCount,
+      scheduled_for_month_cents: ledgerRow?.amount_to_deduct_cents ?? 0,
+      has_open_balance: totalCents > 0,
+    };
+  }, [data, pdfMonth]);
 
   if (isLoading || !data) return <p className="text-muted-foreground">Carregando...</p>;
 
@@ -134,6 +189,43 @@ function EmployeeDetail() {
               </CardContent>
             </Card>
           </div>
+
+          {isAdminOrRh && (
+            <Card>
+              <CardHeader>
+                <div className="flex flex-wrap gap-3 justify-between items-center">
+                  <div>
+                    <CardTitle className="text-base">Demonstrativo individual</CardTitle>
+                    <CardDescription>PDF financeiro para enviar ao colaborador.</CardDescription>
+                  </div>
+                  <Button onClick={() => { setLastResult(null); setPdfOpen(true); }}>
+                    <FileDown className="h-4 w-4 mr-2" />Exportar PDF
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="text-sm">
+                {statementExports.length === 0 ? (
+                  <span className="text-muted-foreground">Nenhum demonstrativo gerado ainda.</span>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div>
+                      Último gerado em{" "}
+                      <b>{new Date(statementExports[0].generated_at).toLocaleString("pt-BR")}</b>
+                      {" "}— referência {formatMonthPtBR(toMonthISO(statementExports[0].reference_month))}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={downloadMut.isPending}
+                      onClick={() => downloadMut.mutate(statementExports[0].id)}
+                    >
+                      <Download className="h-4 w-4 mr-1" />Baixar novamente
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="lancamentos" className="mt-4">
@@ -257,6 +349,62 @@ function EmployeeDetail() {
         </TabsContent>
         )}
       </Tabs>
+
+      <Dialog open={pdfOpen} onOpenChange={setPdfOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Exportar demonstrativo — {employee.full_name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Mês de referência</Label>
+              <Input type="month" value={pdfMonth} onChange={(e) => { setPdfMonth(e.target.value); setLastResult(null); }} className="w-48" />
+            </div>
+
+            <div className="text-sm border rounded-md p-3 bg-muted/30 space-y-1">
+              <div className="font-medium mb-1">Resumo do que será incluído</div>
+              <div>Valor previsto para desconto em {formatMonthPtBR(toMonthISO(pdfMonth))}: <b>{centsToMoney(pdfPreview?.scheduled_for_month_cents ?? 0)}</b></div>
+              <div>Total em aberto/projetado a partir deste mês: <b>{centsToMoney(pdfPreview?.total_cents ?? 0)}</b></div>
+              <div>Meses com parcelas futuras: <b>{pdfPreview?.months_count ?? 0}</b></div>
+              <div className="text-xs text-muted-foreground pt-1">
+                Inclui lançamentos, parcelas previstas e projeção mensal (ledger) a partir do mês escolhido.
+              </div>
+            </div>
+
+            {!pdfPreview?.has_open_balance && (
+              <Alert>
+                <Info className="h-4 w-4" />
+                <AlertDescription>
+                  Este colaborador não possui saldo em aberto nem parcelas futuras a partir do mês escolhido.
+                  O PDF ainda pode ser gerado, com status "Sem saldo em aberto".
+                </AlertDescription>
+              </Alert>
+            )}
+
+            <Alert>
+              <Info className="h-4 w-4" />
+              <AlertDescription>
+                Este PDF é exclusivamente financeiro — não contém procedimentos, prestadores, exames ou qualquer dado médico.
+              </AlertDescription>
+            </Alert>
+
+            {lastResult && (
+              <div className="flex items-center justify-between text-sm border rounded-md p-3">
+                <span>PDF gerado: {lastResult.file_name}</span>
+                <Button variant="outline" size="sm" onClick={() => window.open(lastResult.download_url, "_blank")}>
+                  <Download className="h-4 w-4 mr-1" />Baixar PDF
+                </Button>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPdfOpen(false)}>Fechar</Button>
+            <Button onClick={() => generateMut.mutate()} disabled={generateMut.isPending}>
+              {generateMut.isPending ? "Gerando..." : "Gerar PDF"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
