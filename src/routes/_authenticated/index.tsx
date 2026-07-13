@@ -9,6 +9,7 @@ import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 
 export const Route = createFileRoute("/_authenticated/")({
   component: Dashboard,
@@ -51,6 +52,58 @@ function Dashboard() {
             <StatCard label="Colaboradores com desconto" value={String(data.employees_with_deduct)} />
             <StatCard label="Atingiram o teto (R$ 700)" value={String(data.employees_capped)} />
           </div>
+
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap gap-2 justify-between items-center">
+                <div>
+                  <CardTitle className="text-base">Resumo de descontos do mês</CardTitle>
+                  <CardDescription>
+                    Colaboradores com valor a descontar em {formatMonthPtBR(data.month)} — conferência rápida antes do fechamento.
+                  </CardDescription>
+                </div>
+                <Badge variant="secondary">
+                  {data.deduct_breakdown.length} colaborador(es) · {centsToMoney(data.total_deduct_cents)}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader><TableRow>
+                  <TableHead>Colaborador</TableHead>
+                  <TableHead className="text-right">Valor a descontar</TableHead>
+                  <TableHead>Situação</TableHead>
+                </TableRow></TableHeader>
+                <TableBody>
+                  {data.deduct_breakdown.length === 0 && (
+                    <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground text-sm py-6">Nenhum colaborador com desconto neste mês</TableCell></TableRow>
+                  )}
+                  {data.deduct_breakdown.map((r: any) => (
+                    <TableRow key={r.employee_id}>
+                      <TableCell className="font-medium">
+                        {r.full_name}
+                        {r.payroll_code && <span className="text-xs text-muted-foreground ml-1">({r.payroll_code})</span>}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold">{centsToMoney(r.amount_to_deduct_cents)}</TableCell>
+                      <TableCell className="space-x-1">
+                        {r.has_carryover && <Badge variant="outline">Carryover</Badge>}
+                        {r.capped && <Badge variant="destructive">Atingiu teto</Badge>}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+                {data.deduct_breakdown.length > 0 && (
+                  <tfoot>
+                    <TableRow>
+                      <TableCell className="font-semibold">Total ({data.deduct_breakdown.length} colaborador(es))</TableCell>
+                      <TableCell className="text-right font-semibold">{centsToMoney(data.total_deduct_cents)}</TableCell>
+                      <TableCell></TableCell>
+                    </TableRow>
+                  </tfoot>
+                )}
+              </Table>
+            </CardContent>
+          </Card>
 
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
