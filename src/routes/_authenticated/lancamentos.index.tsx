@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { centsToMoney } from "@/lib/calc/money";
 import { formatMonthPtBR } from "@/lib/calc/date";
 import { sourceLabel } from "@/lib/labels";
+import { Loading } from "@/components/ui/spinner";
 import { Plus, Search, AlertTriangle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useState } from "react";
@@ -69,7 +70,7 @@ function LaunchesIndex() {
               <TableHead></TableHead>
             </TableRow></TableHeader>
             <TableBody>
-              {isLoading && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-6">Carregando...</TableCell></TableRow>}
+              {isLoading && <TableRow><TableCell colSpan={7} className="py-6"><Loading /></TableCell></TableRow>}
               {!isLoading && filtered.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-6">Nenhum lançamento</TableCell></TableRow>}
               {filtered.map((u: any) => (
                 <TableRow key={u.id}>

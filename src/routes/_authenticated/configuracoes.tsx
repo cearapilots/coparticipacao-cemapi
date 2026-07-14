@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Loading } from "@/components/ui/spinner";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { centsToMoney, moneyToCents } from "@/lib/calc/money";
@@ -126,7 +127,7 @@ function AuditPanel() {
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <p className="text-sm text-muted-foreground">Carregando...</p>
+          <Loading />
         ) : (
           <Table>
             <TableHeader><TableRow>

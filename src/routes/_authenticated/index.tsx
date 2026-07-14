@@ -14,7 +14,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { FileDown, AlertTriangle } from "lucide-react";
+import { FileDown, AlertTriangle, LayoutDashboard, Wallet, TrendingUp, Users2, AlertOctagon } from "lucide-react";
+import { Loading } from "@/components/ui/spinner";
+import { PageHeader } from "@/components/page-header";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/")({
@@ -48,21 +50,19 @@ function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap gap-3 justify-between items-end">
-        <div>
-          <h1 className="text-2xl font-semibold">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">
-            Mês de desconto: {data ? formatMonthPtBR(data.month) : ""}
-          </p>
-        </div>
-        <div>
-          <Label>Mês</Label>
-          <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="w-40" />
-        </div>
-      </div>
+      <PageHeader
+        title="Dashboard"
+        description={`Mês de desconto: ${data ? formatMonthPtBR(data.month) : ""}`}
+        actions={
+          <div>
+            <Label className="text-xs">Mês</Label>
+            <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="w-40" />
+          </div>
+        }
+      />
 
       {isLoading || !data ? (
-        <p className="text-sm text-muted-foreground">Carregando...</p>
+        <Loading />
       ) : (
         <>
           {isAdminOrRh && data.pending_batches.length > 0 && (
@@ -83,12 +83,12 @@ function Dashboard() {
             </Alert>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
-            <StatCard label="Valor novo lançado (competência)" value={centsToMoney(data.total_new_cents)} />
-            <StatCard label="Previsto para desconto no mês" value={centsToMoney(data.total_deduct_cents)} />
-            <StatCard label="Remanejado para meses futuros" value={centsToMoney(data.total_carryover_out_cents)} />
-            <StatCard label="Colaboradores com desconto" value={String(data.employees_with_deduct)} />
-            <StatCard label="Atingiram o teto (R$ 700)" value={String(data.employees_capped)} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+            <StatCard label="Valor novo lançado (competência)" value={centsToMoney(data.total_new_cents)} icon={LayoutDashboard} />
+            <StatCard label="Previsto para desconto no mês" value={centsToMoney(data.total_deduct_cents)} icon={Wallet} accent="primary" />
+            <StatCard label="Remanejado para meses futuros" value={centsToMoney(data.total_carryover_out_cents)} icon={TrendingUp} />
+            <StatCard label="Colaboradores com desconto" value={String(data.employees_with_deduct)} icon={Users2} />
+            <StatCard label="Atingiram o teto (R$ 700)" value={String(data.employees_capped)} icon={AlertOctagon} accent={data.employees_capped > 0 ? "warning" : undefined} />
           </div>
 
           <Card>
@@ -207,11 +207,27 @@ function Dashboard() {
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatCard({ label, value, icon: Icon, accent }: {
+  label: string;
+  value: string;
+  icon?: React.ComponentType<{ className?: string }>;
+  accent?: "primary" | "warning";
+}) {
+  const iconCls =
+    accent === "primary" ? "text-primary"
+    : accent === "warning" ? "text-destructive"
+    : "text-muted-foreground";
   return (
     <Card>
-      <CardHeader className="pb-2"><CardDescription>{label}</CardDescription></CardHeader>
-      <CardContent><div className="text-2xl font-semibold">{value}</div></CardContent>
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between gap-2">
+          <CardDescription className="leading-tight">{label}</CardDescription>
+          {Icon && <Icon className={`h-4 w-4 shrink-0 ${iconCls}`} />}
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className={`text-2xl font-semibold ${accent === "warning" ? "text-destructive" : ""}`}>{value}</div>
+      </CardContent>
     </Card>
   );
 }

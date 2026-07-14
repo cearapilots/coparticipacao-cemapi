@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Spinner } from "@/components/ui/spinner";
+import { HeartPulse } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/auth")({
@@ -49,11 +51,14 @@ function AuthPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Coparticipação UNIMED</CardTitle>
-          <CardDescription>Sistema interno de RH</CardDescription>
+    <div className="min-h-screen flex items-center justify-center bg-linear-to-b from-muted/40 to-muted/10 p-4">
+      <Card className="w-full max-w-md shadow-lg">
+        <CardHeader className="items-center text-center space-y-2">
+          <div className="h-12 w-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+            <HeartPulse className="h-6 w-6" />
+          </div>
+          <CardTitle className="text-xl">Coparticipação UNIMED</CardTitle>
+          <CardDescription>Controle de parcelamento e folha — RH</CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="signin">
@@ -65,7 +70,9 @@ function AuthPage() {
               <form onSubmit={handleSignIn} className="space-y-3 mt-4">
                 <div><Label>E-mail</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
                 <div><Label>Senha</Label><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required /></div>
-                <Button type="submit" className="w-full" disabled={loading}>{loading ? "Entrando..." : "Entrar"}</Button>
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading && <Spinner className="mr-2" />}{loading ? "Entrando..." : "Entrar"}
+                </Button>
               </form>
             </TabsContent>
             <TabsContent value="signup">
@@ -73,7 +80,9 @@ function AuthPage() {
                 <div><Label>Nome completo</Label><Input value={fullName} onChange={(e) => setFullName(e.target.value)} required /></div>
                 <div><Label>E-mail</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
                 <div><Label>Senha</Label><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} /></div>
-                <Button type="submit" className="w-full" disabled={loading}>{loading ? "Criando..." : "Cadastrar"}</Button>
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading && <Spinner className="mr-2" />}{loading ? "Criando..." : "Cadastrar"}
+                </Button>
                 <p className="text-xs text-muted-foreground">O primeiro usuário cadastrado vira admin automaticamente.</p>
               </form>
             </TabsContent>

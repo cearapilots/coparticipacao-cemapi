@@ -18,6 +18,8 @@ import { toast } from "sonner";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Download, Info, Lock } from "lucide-react";
+import { Loading } from "@/components/ui/spinner";
+import { PageHeader } from "@/components/page-header";
 
 export const Route = createFileRoute("/_authenticated/fechamento")({
   component: ClosingPage,
@@ -104,12 +106,10 @@ function ClosingPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Fechamento mensal</h1>
-        <p className="text-sm text-muted-foreground">
-          Gere a prévia, revise linha a linha, feche o mês e baixe o XLSX contábil.
-        </p>
-      </div>
+      <PageHeader
+        title="Fechamento mensal"
+        description="Gere a prévia, revise linha a linha, feche o mês e baixe o XLSX contábil."
+      />
 
       <Alert>
         <Info className="h-4 w-4" />
@@ -248,7 +248,7 @@ function ClosingPage() {
             <DialogTitle>Composição — {compEmp?.name}</DialogTitle>
             <CardDescription>Mês de desconto: {formatMonthPtBR(toMonthISO(month))}</CardDescription>
           </DialogHeader>
-          {compQuery.isLoading && <p className="text-sm text-muted-foreground">Carregando...</p>}
+          {compQuery.isLoading && <Loading />}
           {compQuery.data && (
             <div className="space-y-3">
               <Table>

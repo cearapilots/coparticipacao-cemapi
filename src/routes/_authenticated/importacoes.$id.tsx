@@ -14,6 +14,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertTriangle, CheckCircle2, Pencil } from "lucide-react";
+import { Loading } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import { centsToMoney, centsToDecimalString, moneyToCents } from "@/lib/calc/money";
 import { formatMonthPtBR, toMonthISO } from "@/lib/calc/date";
@@ -121,7 +122,7 @@ function BatchDetail() {
       </div>
     );
   }
-  if (isLoading || !data) return <p className="text-sm text-muted-foreground">Carregando...</p>;
+  if (isLoading || !data) return <Loading />;
   const { batch, items, employees } = data;
 
   const filteredEmp = employees.filter((e) =>

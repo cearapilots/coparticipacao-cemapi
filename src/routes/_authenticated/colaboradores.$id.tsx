@@ -13,6 +13,7 @@ import {
 import { previewRenegotiation, renegotiateInstallments } from "@/lib/renegotiation.functions";
 import { listMonthlyCapOverrides, setMonthlyCapOverride, removeMonthlyCapOverride } from "@/lib/monthly-cap.functions";
 import { sourceLabel, statusLabel, statusVariant } from "@/lib/labels";
+import { Loading } from "@/components/ui/spinner";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -177,7 +178,7 @@ function EmployeeDetail() {
     };
   }, [data, pdfMonth]);
 
-  if (isLoading || !data) return <p className="text-muted-foreground">Carregando...</p>;
+  if (isLoading || !data) return <Loading />;
 
   const { employee, aliases, monthly_usages, installment_plans, installment_items, ledger } = data;
   const currentMonth = toMonthISO(new Date());
