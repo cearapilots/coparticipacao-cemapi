@@ -9,7 +9,7 @@ export const getDashboard = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const month = toMonthISO(data.month);
 
-    const [usagesRes, ledgerRes, recentUsagesRes, recentExportsRes] = await Promise.all([
+    const [usagesRes, ledgerRes, recentUsagesRes, recentExportsRes, pendingBatchesRes] = await Promise.all([
       context.supabase.from("monthly_usage").select("amount_cents").eq("competence_month", month),
       context.supabase
         .from("payroll_monthly_ledger")
@@ -19,6 +19,10 @@ export const getDashboard = createServerFn({ method: "POST" })
         .select("id, employee_id, competence_month, amount_cents, created_at, employees(full_name)")
         .order("created_at", { ascending: false }).limit(10),
       context.supabase.from("payroll_exports").select("*").order("generated_at", { ascending: false }).limit(5),
+      context.supabase.from("import_batches")
+        .select("id, source_file_name, competence_month, total_items, uploaded_at")
+        .eq("status", "pending_review")
+        .order("uploaded_at", { ascending: false }),
     ]);
 
     const totalNew = (usagesRes.data ?? []).reduce((s, u) => s + (u.amount_cents ?? 0), 0);
@@ -49,5 +53,6 @@ export const getDashboard = createServerFn({ method: "POST" })
       recent_usages: recentUsagesRes.data ?? [],
       recent_exports: recentExportsRes.data ?? [],
       deduct_breakdown: deductBreakdown,
+      pending_batches: pendingBatchesRes.data ?? [],
     };
   });

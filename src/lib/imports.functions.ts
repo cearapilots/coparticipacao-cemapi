@@ -211,26 +211,33 @@ export const createImportBatchFromPdf = createServerFn({ method: "POST" })
       .single();
     if (bErr) throw bErr;
 
-    // Matching
+    // Matching. Considera colaboradores ATIVOS e INATIVOS: um desligado que
+    // apareça no PDF deve ser sugerido, mas nunca auto-confirmado — cai em
+    // 'needs_review' para o RH decidir (spec 16.8).
     const [empRes, aliasRes] = await Promise.all([
-      context.supabase.from("employees").select("id, normalized_name").eq("status", "active"),
+      context.supabase.from("employees").select("id, normalized_name, status"),
       context.supabase.from("employee_aliases").select("employee_id, normalized_alias_name"),
     ]);
     const employees = empRes.data ?? [];
     const aliases = aliasRes.data ?? [];
+    const inactiveIds = new Set(employees.filter((e) => e.status !== "active").map((e) => e.id));
 
     if (parsed.items.length > 0) {
       const itemRows = parsed.items.map((it) => {
         const m = matchName(it.raw_employee_name, employees, aliases);
+        // Se casou com um colaborador inativo, força revisão manual.
+        const matchedInactive = m.employee_id != null && inactiveIds.has(m.employee_id);
+        const status = matchedInactive && m.status === "auto_matched" ? "needs_review" : m.status;
         return {
           import_batch_id: batch.id,
           raw_employee_name: it.raw_employee_name,
           matched_employee_id: m.employee_id,
           match_confidence: m.confidence,
-          match_status: m.status,
+          match_status: status,
           amount_cents: it.amount_cents,
           raw_text_reference: it.raw_text_reference,
-          review_status: m.status === "auto_matched" ? "reviewed" : "pending",
+          review_status: status === "auto_matched" ? "reviewed" : "pending",
+          notes: matchedInactive ? "Colaborador inativo — confirmar se o lançamento se aplica." : null,
         };
       });
       const { error: iErr } = await context.supabase.from("import_items").insert(itemRows);

@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSuspenseQuery, useQuery, useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { getDashboard } from "@/lib/dashboard.functions";
@@ -6,6 +6,7 @@ import { getMyRoles } from "@/lib/settings.functions";
 import { generateEmployeeStatementPdf } from "@/lib/employee-statements.functions";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { centsToMoney } from "@/lib/calc/money";
 import { formatMonthPtBR, toMonthISO } from "@/lib/calc/date";
 import { useState } from "react";
@@ -13,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { FileDown } from "lucide-react";
+import { FileDown, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/")({
@@ -64,6 +65,24 @@ function Dashboard() {
         <p className="text-sm text-muted-foreground">Carregando...</p>
       ) : (
         <>
+          {isAdminOrRh && data.pending_batches.length > 0 && (
+            <Alert>
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>
+                {data.pending_batches.length} lote(s) de importação aguardando revisão
+              </AlertTitle>
+              <AlertDescription className="flex flex-wrap items-center gap-2">
+                <span>
+                  {data.pending_batches.slice(0, 3).map((b: any) => b.source_file_name).join(", ")}
+                  {data.pending_batches.length > 3 ? "…" : ""}
+                </span>
+                <Button asChild size="sm" variant="outline">
+                  <Link to="/importacoes">Revisar agora</Link>
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
             <StatCard label="Valor novo lançado (competência)" value={centsToMoney(data.total_new_cents)} />
             <StatCard label="Previsto para desconto no mês" value={centsToMoney(data.total_deduct_cents)} />

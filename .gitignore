@@ -31,8 +31,9 @@ supabase/.temp/
 # Data export used for one-off migration (contains employee PII)
 /csv/
 
-# PDFs de teste da UNIMED (contêm dados de colaboradores) e harnesses locais
+# PDFs/XLSX com dados de colaboradores (UNIMED, contabilidade) e harnesses locais
 *.pdf
+*.xlsx
 _pdf_*.mjs
 
 # Editor directories and files

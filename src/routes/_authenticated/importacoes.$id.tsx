@@ -266,7 +266,14 @@ function BatchDetail() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {matchedEmp ? matchedEmp.full_name : <span className="text-destructive text-xs">—</span>}
+                      {matchedEmp ? (
+                        <span>
+                          {matchedEmp.full_name}
+                          {(matchedEmp as any).status !== "active" && (
+                            <Badge variant="destructive" className="ml-1 text-[10px]">Inativo</Badge>
+                          )}
+                        </span>
+                      ) : <span className="text-destructive text-xs">—</span>}
                     </TableCell>
                     <TableCell>
                       {matchStatusBadge(it.match_status)}
@@ -477,7 +484,7 @@ function BatchDetail() {
                                 <SelectContent className="max-h-72">
                                   {filteredEmp.map((e) => (
                                     <SelectItem key={e.id} value={e.id}>
-                                      {e.full_name}{e.payroll_code ? ` (${e.payroll_code})` : ""}
+                                      {e.full_name}{e.payroll_code ? ` (${e.payroll_code})` : ""}{(e as any).status !== "active" ? " — inativo" : ""}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
