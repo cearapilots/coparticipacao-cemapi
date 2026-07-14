@@ -11,6 +11,7 @@ import {
   deleteEmployeeStatementExport,
 } from "@/lib/employee-statements.functions";
 import { previewRenegotiation, renegotiateInstallments } from "@/lib/renegotiation.functions";
+import { listMonthlyCapOverrides, setMonthlyCapOverride, removeMonthlyCapOverride } from "@/lib/monthly-cap.functions";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -21,7 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { centsToMoney } from "@/lib/calc/money";
+import { centsToMoney, moneyToCents } from "@/lib/calc/money";
 import { formatMonthPtBR, toMonthISO } from "@/lib/calc/date";
 import { useMemo, useState } from "react";
 import { Trash2, FileDown, Download, Info } from "lucide-react";
@@ -65,6 +66,9 @@ function EmployeeDetail() {
   const deleteStatement = useServerFn(deleteEmployeeStatementExport);
   const previewReneg = useServerFn(previewRenegotiation);
   const doReneg = useServerFn(renegotiateInstallments);
+  const fetchCapOverrides = useServerFn(listMonthlyCapOverrides);
+  const setCapFn = useServerFn(setMonthlyCapOverride);
+  const removeCapFn = useServerFn(removeMonthlyCapOverride);
   const qc = useQueryClient();
   const [newAlias, setNewAlias] = useState("");
   const [pdfOpen, setPdfOpen] = useState(false);
@@ -76,6 +80,9 @@ function EmployeeDetail() {
   const [renegOpen, setRenegOpen] = useState(false);
   const [renegCount, setRenegCount] = useState(3);
   const [renegReason, setRenegReason] = useState("");
+  const [capMonth, setCapMonth] = useState<string | null>(null); // payroll_month ISO do mês em edição
+  const [capDraft, setCapDraft] = useState("");
+  const [capReason, setCapReason] = useState("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["employee-detail", id],
@@ -89,6 +96,37 @@ function EmployeeDetail() {
     queryKey: ["statement-exports", id],
     queryFn: () => fetchStatementExports({ data: { employee_id: id } }),
     enabled: isAdminOrRh,
+  });
+
+  const { data: capOverrides = [] } = useQuery({
+    queryKey: ["cap-overrides", id],
+    queryFn: () => fetchCapOverrides({ data: { employee_id: id } }),
+  });
+  const capByMonth = new Map<string, number>(
+    (capOverrides as any[]).map((o) => [toMonthISO(o.payroll_month), o.cap_cents]),
+  );
+
+  const setCapMut = useMutation({
+    mutationFn: (v: { payroll_month: string; cap_cents: number; reason: string }) =>
+      setCapFn({ data: { employee_id: id, ...v } }),
+    onSuccess: () => {
+      toast.success("Teto do mês atualizado.");
+      setCapMonth(null);
+      qc.invalidateQueries({ queryKey: ["employee-detail", id] });
+      qc.invalidateQueries({ queryKey: ["cap-overrides", id] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const removeCapMut = useMutation({
+    mutationFn: (v: { payroll_month: string; reason: string }) =>
+      removeCapFn({ data: { employee_id: id, ...v } }),
+    onSuccess: () => {
+      toast.success("Teto personalizado removido.");
+      setCapMonth(null);
+      qc.invalidateQueries({ queryKey: ["employee-detail", id] });
+      qc.invalidateQueries({ queryKey: ["cap-overrides", id] });
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const addMut = useMutation({
@@ -356,7 +394,17 @@ function EmployeeDetail() {
         </TabsContent>
 
         <TabsContent value="ledger" className="mt-4">
-          <Card><CardContent className="pt-6">
+          <Card>
+            {isAdminOrRh && (
+              <CardHeader>
+                <CardTitle className="text-base">Ledger mensal</CardTitle>
+                <CardDescription>
+                  Em meses abertos você pode ajustar o teto de desconto do mês. A diferença é
+                  remanejada para os meses seguintes, respeitando o teto de cada mês.
+                </CardDescription>
+              </CardHeader>
+            )}
+            <CardContent className="pt-6">
             <Table>
               <TableHeader><TableRow>
                 <TableHead>Mês de desconto</TableHead>
@@ -367,24 +415,51 @@ function EmployeeDetail() {
                 <TableHead className="text-right">A descontar</TableHead>
                 <TableHead className="text-right">Carryover p/ próx.</TableHead>
                 <TableHead>Status</TableHead>
+                {isAdminOrRh && <TableHead></TableHead>}
               </TableRow></TableHeader>
               <TableBody>
-                {ledger.length === 0 && <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-6">Sem ledger</TableCell></TableRow>}
-                {ledger.map((r: any) => (
+                {ledger.length === 0 && <TableRow><TableCell colSpan={isAdminOrRh ? 9 : 8} className="text-center text-muted-foreground py-6">Sem ledger</TableCell></TableRow>}
+                {ledger.map((r: any) => {
+                  const rMonth = toMonthISO(r.payroll_month);
+                  const hasOverride = capByMonth.has(rMonth);
+                  const isOpen = r.status === "projected";
+                  return (
                   <TableRow key={r.id}>
                     <TableCell className="font-medium">{formatMonthPtBR(r.payroll_month)}</TableCell>
                     <TableCell className="text-right">{centsToMoney(r.scheduled_amount_cents)}</TableCell>
                     <TableCell className="text-right">{centsToMoney(r.carryover_in_cents)}</TableCell>
                     <TableCell className="text-right">{centsToMoney(r.gross_due_cents)}</TableCell>
-                    <TableCell className="text-right text-muted-foreground text-xs">{centsToMoney(r.cap_cents)}</TableCell>
+                    <TableCell className="text-right text-xs">
+                      <span className={hasOverride ? "font-semibold" : "text-muted-foreground"}>{centsToMoney(r.cap_cents)}</span>
+                      {hasOverride && <Badge variant="secondary" className="ml-1 text-[10px]">ajustado</Badge>}
+                    </TableCell>
                     <TableCell className="text-right font-semibold">{centsToMoney(r.amount_to_deduct_cents)}</TableCell>
                     <TableCell className="text-right">{centsToMoney(r.carryover_out_cents)}</TableCell>
                     <TableCell>{statusBadge(r.status)}</TableCell>
+                    {isAdminOrRh && (
+                      <TableCell className="text-right">
+                        {isOpen && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setCapMonth(rMonth);
+                              setCapDraft(centsToMoney(r.cap_cents).replace(/[^\d,]/g, ""));
+                              setCapReason("");
+                            }}
+                          >
+                            Ajustar teto
+                          </Button>
+                        )}
+                      </TableCell>
+                    )}
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
-          </CardContent></Card>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {isAdmin && (
@@ -498,6 +573,61 @@ function EmployeeDetail() {
               disabled={renegMut.isPending}
             >
               {renegMut.isPending ? "Re-parcelando..." : "Confirmar re-parcelamento"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={capMonth !== null} onOpenChange={(o) => { if (!o) setCapMonth(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Ajustar teto do mês{capMonth ? ` — ${formatMonthPtBR(capMonth)}` : ""}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Alert>
+              <Info className="h-4 w-4" />
+              <AlertDescription>
+                Reduz (ou ajusta) o desconto deste mês. A diferença é remanejada para os meses
+                seguintes, sempre respeitando o teto de cada mês. Use R$ 0,00 para pular o mês.
+              </AlertDescription>
+            </Alert>
+            <div>
+              <Label>Novo teto do mês (R$)</Label>
+              <Input value={capDraft} onChange={(e) => setCapDraft(e.target.value)} placeholder="Ex: 400,00" className="w-48" />
+            </div>
+            <div>
+              <Label>Justificativa (obrigatória)</Label>
+              <Textarea
+                value={capReason}
+                onChange={(e) => setCapReason(e.target.value)}
+                placeholder="Ex: colaborador solicitou reduzir o desconto deste mês; diferença remanejada."
+              />
+            </div>
+          </div>
+          <DialogFooter className="flex-wrap gap-2">
+            {capMonth && capByMonth.has(capMonth) && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (capReason.trim().length < 10) { toast.error("Informe um motivo (mín. 10 caracteres)."); return; }
+                  removeCapMut.mutate({ payroll_month: capMonth, reason: capReason.trim() });
+                }}
+                disabled={removeCapMut.isPending}
+              >
+                Remover teto personalizado
+              </Button>
+            )}
+            <Button
+              onClick={() => {
+                if (!capMonth) return;
+                if (capReason.trim().length < 10) { toast.error("Informe um motivo (mín. 10 caracteres)."); return; }
+                const cents = moneyToCents(capDraft);
+                if (cents < 0) { toast.error("Valor inválido."); return; }
+                setCapMut.mutate({ payroll_month: capMonth, cap_cents: cents, reason: capReason.trim() });
+              }}
+              disabled={setCapMut.isPending}
+            >
+              {setCapMut.isPending ? "Salvando..." : "Salvar teto"}
             </Button>
           </DialogFooter>
         </DialogContent>

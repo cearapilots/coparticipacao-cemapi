@@ -112,6 +112,50 @@ export type Database = {
           },
         ]
       }
+      employee_monthly_cap_overrides: {
+        Row: {
+          cap_cents: number
+          created_at: string
+          created_by: string | null
+          employee_id: string
+          id: string
+          payroll_month: string
+          reason: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          cap_cents: number
+          created_at?: string
+          created_by?: string | null
+          employee_id: string
+          id?: string
+          payroll_month: string
+          reason?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          cap_cents?: number
+          created_at?: string
+          created_by?: string | null
+          employee_id?: string
+          id?: string
+          payroll_month?: string
+          reason?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_monthly_cap_overrides_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       employee_statement_exports: {
         Row: {
           created_at: string

@@ -20,6 +20,23 @@ async function getMonthlyCap(supabase: SupabaseClient<Database>): Promise<number
   return typeof v === "number" ? v : 70000;
 }
 
+// Tetos personalizados por mês deste colaborador (Feature B). Mapa month -> cap.
+// Se um mês não tiver override, o recálculo usa o teto global.
+async function getCapOverrides(
+  supabase: SupabaseClient<Database>,
+  employeeId: string,
+): Promise<Map<string, number>> {
+  const { data } = await supabase
+    .from("employee_monthly_cap_overrides")
+    .select("payroll_month, cap_cents")
+    .eq("employee_id", employeeId);
+  const map = new Map<string, number>();
+  for (const row of data ?? []) {
+    map.set(toMonthISO(row.payroll_month), row.cap_cents);
+  }
+  return map;
+}
+
 /**
  * Recalcula ledger do colaborador a partir de fromMonth.
  * Meses com status = 'closed' ou 'exported' NÃO são alterados; usa-se o
@@ -30,7 +47,8 @@ export async function recalculateEmployeeLedger(
   employeeId: string,
   fromMonth: MonthISO,
 ): Promise<void> {
-  const capCents = await getMonthlyCap(supabase);
+  const globalCap = await getMonthlyCap(supabase);
+  const capOverrides = await getCapOverrides(supabase, employeeId);
 
   // Carryover que entra em fromMonth: pega o mês imediatamente anterior.
   const prevMonth = addMonths(fromMonth, -1);
@@ -81,6 +99,8 @@ export async function recalculateEmployeeLedger(
       // Não altera. Usa carryover_out registrado.
       carryoverIn = existing.carryover_out_cents ?? 0;
     } else {
+      // Teto efetivo do mês: personalizado (Feature B) se existir, senão global.
+      const capCents = capOverrides.get(cursor) ?? globalCap;
       const { grossDueCents: gross, amountToDeductCents, carryoverOutCents } = applyMonthlyCap({
         scheduledAmountCents: scheduled,
         carryoverInCents: carryoverIn,
