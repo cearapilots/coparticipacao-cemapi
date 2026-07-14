@@ -87,8 +87,6 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "twitter:card", content: "summary" },
       { name: "twitter:title", content: "Coparticipação UNIMED — RH" },
       { name: "twitter:description", content: "Sistema interno de controle de coparticipação, parcelamento e fechamento mensal para o RH." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/8789d3aa-d2c1-4504-829d-0706d0b33168/id-preview-384d3cd2--b0b1de79-f060-435a-bc0f-9b4f5049c3d1.lovable.app-1783694993892.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/8789d3aa-d2c1-4504-829d-0706d0b33168/id-preview-384d3cd2--b0b1de79-f060-435a-bc0f-9b4f5049c3d1.lovable.app-1783694993892.png" },
     ],
     links: [
       {

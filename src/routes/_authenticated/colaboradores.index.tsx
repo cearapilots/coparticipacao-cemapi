@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useState, useMemo } from "react";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, Download } from "lucide-react";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -44,10 +44,17 @@ function EmployeesPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [sectionFilter, setSectionFilter] = useState<string>("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState<EmpForm>(emptyForm);
 
   const { data: employees = [] } = useQuery({ queryKey: ["employees"], queryFn: () => fetchList() });
+
+  const sections = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of employees as any[]) if (e.section_name) set.add(e.section_name);
+    return Array.from(set).sort();
+  }, [employees]);
 
   const mutation = useMutation({
     mutationFn: (payload: EmpForm) => upsert({ data: payload }),
@@ -64,13 +71,34 @@ function EmployeesPage() {
     const s = normalize(search);
     return employees.filter((e: any) => {
       if (statusFilter !== "all" && e.status !== statusFilter) return false;
+      if (sectionFilter !== "all" && e.section_name !== sectionFilter) return false;
       if (!s) return true;
       if (normalize(e.full_name).includes(s)) return true;
       if ((e.payroll_code ?? "").toLowerCase().includes(s)) return true;
       if ((e.registration_number ?? "").toLowerCase().includes(s)) return true;
       return (e.aliases ?? []).some((a: any) => a.normalized_alias_name.includes(s));
     });
-  }, [employees, search, statusFilter]);
+  }, [employees, search, statusFilter, sectionFilter]);
+
+  function exportCsv() {
+    const headers = ["Nome", "Código folha", "Matrícula", "Função", "Cód. seção", "Seção", "Status"];
+    const esc = (v: any) => {
+      const s = String(v ?? "");
+      return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const lines = [headers.join(";")];
+    for (const e of filtered as any[]) {
+      lines.push([e.full_name, e.payroll_code, e.registration_number, e.role, e.section_code, e.section_name, e.status === "active" ? "Ativo" : "Inativo"].map(esc).join(";"));
+    }
+    // BOM para o Excel abrir acentos corretamente.
+    const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `colaboradores_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="space-y-6">
@@ -120,13 +148,25 @@ function EmployeesPage() {
               <Input placeholder="Buscar por nome, alias, código ou matrícula" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
             </div>
             <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
-              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
                 <SelectItem value="active">Ativos</SelectItem>
                 <SelectItem value="inactive">Inativos</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={sectionFilter} onValueChange={setSectionFilter}>
+              <SelectTrigger className="w-48"><SelectValue placeholder="Seção" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas as seções</SelectItem>
+                {sections.map((sec) => (
+                  <SelectItem key={sec} value={sec}>{sec}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" onClick={exportCsv} disabled={filtered.length === 0}>
+              <Download className="h-4 w-4 mr-2" />Exportar CSV
+            </Button>
           </div>
         </CardHeader>
         <CardContent>

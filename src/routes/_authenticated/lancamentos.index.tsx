@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input";
 import { centsToMoney } from "@/lib/calc/money";
 import { formatMonthPtBR } from "@/lib/calc/date";
+import { sourceLabel } from "@/lib/labels";
 import { Plus, Search, AlertTriangle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useState } from "react";
@@ -95,6 +96,3 @@ function LaunchesIndex() {
   );
 }
 
-function sourceLabel(s: string) {
-  return s === "manual" ? "Manual" : s === "import" ? "Importação" : s === "adjustment" ? "Ajuste" : s === "opening_balance" ? "Saldo inicial" : s;
-}

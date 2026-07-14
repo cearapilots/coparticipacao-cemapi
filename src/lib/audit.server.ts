@@ -16,7 +16,7 @@ export async function logAudit(
     afterSnapshot?: unknown;
   },
 ): Promise<void> {
-  await supabase.from("audit_log").insert({
+  const { error } = await supabase.from("audit_log").insert({
     actor_user_id: actorUserId,
     action: params.action,
     entity_type: params.entityType,
@@ -26,4 +26,9 @@ export async function logAudit(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     after_snapshot: (params.afterSnapshot ?? null) as any,
   });
+  // Não derruba a operação principal se a auditoria falhar, mas NÃO engole em
+  // silêncio: registra no log do servidor para a falha ser visível/investigável.
+  if (error) {
+    console.error(`[audit] Falha ao registrar "${params.action}" (${params.entityType}):`, error.message);
+  }
 }

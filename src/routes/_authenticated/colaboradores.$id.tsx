@@ -12,6 +12,7 @@ import {
 } from "@/lib/employee-statements.functions";
 import { previewRenegotiation, renegotiateInstallments } from "@/lib/renegotiation.functions";
 import { listMonthlyCapOverrides, setMonthlyCapOverride, removeMonthlyCapOverride } from "@/lib/monthly-cap.functions";
+import { sourceLabel, statusLabel, statusVariant } from "@/lib/labels";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -32,26 +33,8 @@ export const Route = createFileRoute("/_authenticated/colaboradores/$id")({
   component: EmployeeDetail,
 });
 
-function sourceLabel(s: string) {
-  return s === "manual" ? "Manual"
-    : s === "opening_balance" ? "Saldo inicial"
-    : s === "adjustment" ? "Ajuste"
-    : s === "monthly_usage" ? "Lançamento"
-    : s === "renegotiation" ? "Re-parcelamento"
-    : s === "import" ? "Importação" : s;
-}
-
 function statusBadge(s: string) {
-  const map: Record<string, { label: string; variant: any }> = {
-    projected: { label: "Projetado", variant: "outline" },
-    closed: { label: "Fechado", variant: "default" },
-    exported: { label: "Exportado", variant: "default" },
-    confirmed: { label: "Confirmado", variant: "secondary" },
-    active: { label: "Ativo", variant: "default" },
-    superseded: { label: "Substituída", variant: "outline" },
-  };
-  const cfg = map[s] ?? { label: s, variant: "outline" };
-  return <Badge variant={cfg.variant}>{cfg.label}</Badge>;
+  return <Badge variant={statusVariant(s)}>{statusLabel(s)}</Badge>;
 }
 
 function EmployeeDetail() {

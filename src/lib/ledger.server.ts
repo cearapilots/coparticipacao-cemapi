@@ -8,7 +8,12 @@ import type { Database } from "@/integrations/supabase/types";
 import { addMonths, type MonthISO, toMonthISO } from "./calc/date";
 import { applyMonthlyCap } from "./calc/installments";
 
-const MAX_MONTHS_AHEAD = 36;
+// Horizonte de projeção. Alinhado ao motor puro (calc/ledger.ts). É folgado de
+// propósito: parcelas de coparticipação são pequenas, então o carryover zera em
+// poucos meses no uso normal. O limite só existe como trava de segurança contra
+// caudas de carryover absurdas (ex.: teto personalizado muito baixo em saldo
+// grande) — e nesse caso o loop AVISA em vez de dropar saldo em silêncio.
+const MAX_MONTHS_AHEAD = 240;
 
 async function getMonthlyCap(supabase: SupabaseClient<Database>): Promise<number> {
   const { data } = await supabase
@@ -141,6 +146,16 @@ export async function recalculateEmployeeLedger(
     if (carryoverIn === 0 && !anyFuture) break;
 
     cursor = addMonths(cursor, 1);
+
+    // Trava de segurança: se estourou o horizonte com carryover ainda pendente,
+    // NÃO some silenciosamente com o saldo — registra para investigação.
+    if (iterations >= MAX_MONTHS_AHEAD && carryoverIn > 0) {
+      console.error(
+        `[ledger] Horizonte de ${MAX_MONTHS_AHEAD} meses estourado para o colaborador ${employeeId} ` +
+        `com carryover pendente de ${carryoverIn} centavos a partir de ${cursor}. ` +
+        `Verifique tetos personalizados muito baixos.`,
+      );
+    }
   }
 }
 

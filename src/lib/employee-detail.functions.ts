@@ -1,26 +1,16 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { toMonthISO } from "./calc/date";
 
+// Somente leitura. O ledger é recalculado nas OPERAÇÕES que o alteram
+// (confirmar lote, lançamento, saldo inicial, re-parcelamento, teto por mês),
+// então aqui apenas lemos o que já está gravado. Isso evita escrever a cada
+// visualização e mantém a página do colaborador consistente com Dashboard e
+// Fechamento, que também leem o ledger gravado.
 export const getEmployeeDetail = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ context, data }) => {
-    const { recalculateEmployeeLedger } = await import("./ledger.server");
-
-    // Encontra mês mínimo aberto para recalcular
-    const { data: openMin } = await context.supabase
-      .from("payroll_monthly_ledger")
-      .select("payroll_month")
-      .eq("employee_id", data.id)
-      .eq("status", "projected")
-      .order("payroll_month", { ascending: true })
-      .limit(1);
-    if (openMin && openMin[0]) {
-      await recalculateEmployeeLedger(context.supabase, data.id, toMonthISO(openMin[0].payroll_month));
-    }
-
     const [emp, aliases, usages, plans, items, ledger] = await Promise.all([
       context.supabase.from("employees").select("*").eq("id", data.id).maybeSingle(),
       context.supabase.from("employee_aliases").select("*").eq("employee_id", data.id).order("alias_name"),

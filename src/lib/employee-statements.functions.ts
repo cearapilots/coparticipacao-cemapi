@@ -3,29 +3,10 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { toMonthISO } from "./calc/date";
 import { buildEmployeeStatementPdf } from "./employee-statement-pdf";
+import { sourceLabel, statusLabel } from "./labels";
 
 const BUCKET = "employee-statements";
 const DEFAULT_CAP_CENTS = 70000;
-
-function sourceLabel(s: string): string {
-  return s === "manual" ? "Manual"
-    : s === "opening_balance" ? "Saldo inicial"
-    : s === "adjustment" ? "Ajuste"
-    : s === "monthly_usage" ? "Lançamento"
-    : s === "import" ? "Importação" : s;
-}
-
-function statusLabel(s: string): string {
-  const map: Record<string, string> = {
-    projected: "Projetado",
-    closed: "Fechado",
-    exported: "Exportado",
-    confirmed: "Confirmado",
-    active: "Ativo",
-    cancelled: "Cancelado",
-  };
-  return map[s] ?? s;
-}
 
 export const generateEmployeeStatementPdf = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])

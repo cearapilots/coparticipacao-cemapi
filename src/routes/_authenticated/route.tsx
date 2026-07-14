@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { getMyRoles } from "@/lib/settings.functions";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
   LayoutDashboard,
   Users,
@@ -13,6 +14,9 @@ import {
   Settings,
   LogOut,
   Upload,
+  Menu,
+  Moon,
+  Sun,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated")({
@@ -41,9 +45,94 @@ const adminNav = [
   { to: "/configuracoes", label: "Configurações", icon: Settings },
 ] as const;
 
+function useTheme() {
+  const [dark, setDark] = useState(false);
+  useEffect(() => {
+    const stored = localStorage.getItem("theme");
+    const isDark = stored ? stored === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    setDark(isDark);
+    document.documentElement.classList.toggle("dark", isDark);
+  }, []);
+  const toggle = () => {
+    setDark((prev) => {
+      const next = !prev;
+      document.documentElement.classList.toggle("dark", next);
+      localStorage.setItem("theme", next ? "dark" : "light");
+      return next;
+    });
+  };
+  return { dark, toggle };
+}
+
+function NavContent({ isAdmin, email, onNavigate, onSignOut, dark, toggleTheme }: {
+  isAdmin: boolean;
+  email: string;
+  onNavigate?: () => void;
+  onSignOut: () => void;
+  dark: boolean;
+  toggleTheme: () => void;
+}) {
+  const linkCls = "flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors";
+  return (
+    <div className="flex flex-col h-full">
+      <div className="p-4 border-b">
+        <h1 className="font-semibold text-lg">Coparticipação</h1>
+        <p className="text-xs text-muted-foreground">UNIMED · RH</p>
+      </div>
+      <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+        {nav.map((item) => (
+          <Link
+            key={item.to}
+            to={item.to}
+            activeOptions={{ exact: item.to === "/" }}
+            activeProps={{ className: "bg-accent text-accent-foreground" }}
+            className={linkCls}
+            onClick={onNavigate}
+          >
+            <item.icon className="h-4 w-4" />
+            {item.label}
+          </Link>
+        ))}
+        {isAdmin && (
+          <>
+            <div className="pt-3 pb-1 px-3 text-[11px] font-medium uppercase text-muted-foreground tracking-wide">
+              Administração
+            </div>
+            {adminNav.map((item) => (
+              <Link
+                key={item.to}
+                to={item.to}
+                activeProps={{ className: "bg-accent text-accent-foreground" }}
+                className={linkCls}
+                onClick={onNavigate}
+              >
+                <item.icon className="h-4 w-4" />
+                {item.label}
+              </Link>
+            ))}
+          </>
+        )}
+      </nav>
+      <div className="p-3 border-t space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs text-muted-foreground truncate" title={email}>{email}</div>
+          <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={toggleTheme} title="Alternar tema">
+            {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </Button>
+        </div>
+        <Button variant="outline" size="sm" className="w-full" onClick={onSignOut}>
+          <LogOut className="h-4 w-4 mr-2" />Sair
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function AuthenticatedLayout() {
   const router = useRouter();
   const [email, setEmail] = useState<string>("");
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const { dark, toggle } = useTheme();
   const fetchRoles = useServerFn(getMyRoles);
   const { data: myRoles = [] } = useQuery({ queryKey: ["my-roles"], queryFn: () => fetchRoles() });
   const isAdmin = myRoles.includes("admin");
@@ -63,52 +152,33 @@ function AuthenticatedLayout() {
 
   return (
     <div className="flex min-h-screen bg-muted/30">
-      <aside className="w-64 border-r bg-background flex flex-col">
-        <div className="p-4 border-b">
-          <h1 className="font-semibold text-lg">Coparticipação</h1>
-          <p className="text-xs text-muted-foreground">UNIMED · RH</p>
-        </div>
-        <nav className="flex-1 p-2 space-y-1">
-          {nav.map((item) => (
-            <Link
-              key={item.to}
-              to={item.to}
-              activeOptions={{ exact: item.to === "/" }}
-              activeProps={{ className: "bg-accent text-accent-foreground" }}
-              className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
-            >
-              <item.icon className="h-4 w-4" />
-              {item.label}
-            </Link>
-          ))}
-          {isAdmin && (
-            <>
-              <div className="pt-3 pb-1 px-3 text-[11px] font-medium uppercase text-muted-foreground tracking-wide">
-                Administração
-              </div>
-              {adminNav.map((item) => (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  activeProps={{ className: "bg-accent text-accent-foreground" }}
-                  className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
-                >
-                  <item.icon className="h-4 w-4" />
-                  {item.label}
-                </Link>
-              ))}
-            </>
-          )}
-        </nav>
-        <div className="p-3 border-t space-y-2">
-          <div className="text-xs text-muted-foreground truncate" title={email}>{email}</div>
-          <Button variant="outline" size="sm" className="w-full" onClick={handleSignOut}>
-            <LogOut className="h-4 w-4 mr-2" />Sair
-          </Button>
-        </div>
+      {/* Sidebar fixa (desktop) */}
+      <aside className="hidden md:flex w-64 border-r bg-background flex-col">
+        <NavContent isAdmin={isAdmin} email={email} onSignOut={handleSignOut} dark={dark} toggleTheme={toggle} />
       </aside>
+
+      {/* Sidebar em gaveta (mobile) */}
+      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <SheetContent side="left" className="p-0 w-64">
+          <SheetTitle className="sr-only">Menu</SheetTitle>
+          <NavContent
+            isAdmin={isAdmin}
+            email={email}
+            onNavigate={() => setMobileOpen(false)}
+            onSignOut={handleSignOut}
+            dark={dark}
+            toggleTheme={toggle}
+          />
+        </SheetContent>
+      </Sheet>
+
       <main className="flex-1 min-w-0">
-        <div className="max-w-7xl mx-auto p-6">
+        {/* Barra superior só no mobile, com o botão de menu */}
+        <div className="md:hidden flex items-center gap-2 border-b bg-background px-4 py-3 sticky top-0 z-10">
+          <Button variant="ghost" size="icon" onClick={() => setMobileOpen(true)}><Menu className="h-5 w-5" /></Button>
+          <span className="font-semibold">Coparticipação</span>
+        </div>
+        <div className="max-w-7xl mx-auto p-4 md:p-6">
           <Outlet />
         </div>
       </main>

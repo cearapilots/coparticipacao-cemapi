@@ -177,6 +177,38 @@ describe("applyMonthlyCap", () => {
   });
 });
 
+// Feature B: teto personalizado em UM mês. O motor de banco aplica o teto por
+// mês encadeando applyMonthlyCap com o cap efetivo de cada mês. Este teste
+// trava a matemática do exemplo do RH: agosto 600 com teto 400 → resto respeita
+// o teto global (700) nos meses seguintes, sem estourar e sem perder centavos.
+describe("Feature B: teto por mês reduzido (600 → 400)", () => {
+  it("agosto 400 (override), set/out 700 (global), total preservado", () => {
+    // 3 meses de R$ 600 previstos; agosto com teto override de R$ 400.
+    const ago = applyMonthlyCap({ scheduledAmountCents: 60000, carryoverInCents: 0, capCents: 40000 });
+    expect(ago).toEqual({ grossDueCents: 60000, amountToDeductCents: 40000, carryoverOutCents: 20000 });
+
+    const set = applyMonthlyCap({ scheduledAmountCents: 60000, carryoverInCents: ago.carryoverOutCents, capCents: CAP });
+    expect(set).toEqual({ grossDueCents: 80000, amountToDeductCents: 70000, carryoverOutCents: 10000 });
+
+    const out = applyMonthlyCap({ scheduledAmountCents: 60000, carryoverInCents: set.carryoverOutCents, capCents: CAP });
+    expect(out).toEqual({ grossDueCents: 70000, amountToDeductCents: 70000, carryoverOutCents: 0 });
+
+    const totalDescontado = ago.amountToDeductCents + set.amountToDeductCents + out.amountToDeductCents;
+    expect(totalDescontado).toBe(180000); // R$ 1.800,00 — igual ao total previsto
+    expect([ago, set, out].every((m) => m.amountToDeductCents <= CAP)).toBe(true); // nenhum mês fura o teto
+  });
+});
+
+// Feature C: re-parcelar preserva o total do saldo restante ao mudar o nº de parcelas.
+describe("Feature C: re-parcelar preserva o total", () => {
+  it("saldo de R$ 1.154,40 (restante) em 4x soma exatamente o total", () => {
+    const restante = 115440;
+    const parcelas = splitIntoInstallments(restante, 4);
+    expect(parcelas.reduce((a, b) => a + b, 0)).toBe(restante);
+    expect(parcelas.length).toBe(4);
+  });
+});
+
 describe("recalculateEmployeeLedger", () => {
   it("sobreposição abr(300) + mai(200): abr 100, mai 200, jun 200 (sem teto)", () => {
     const out = recalculateEmployeeLedger({
