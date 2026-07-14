@@ -19,7 +19,7 @@ import { centsToMoney, centsToDecimalString, moneyToCents } from "@/lib/calc/mon
 import { formatMonthPtBR, toMonthISO } from "@/lib/calc/date";
 import {
   getImportBatchDetails, updateImportItemMatch, ignoreImportItem,
-  confirmImportBatch, cancelImportBatch, updateImportItemAmount,
+  confirmImportBatch, cancelImportBatch, updateImportItemAmount, updateImportItemInstallments,
 } from "@/lib/imports.functions";
 
 export const Route = createFileRoute("/_authenticated/importacoes/$id")({
@@ -48,6 +48,7 @@ function BatchDetail() {
   const confirmFn = useServerFn(confirmImportBatch);
   const cancelFn = useServerFn(cancelImportBatch);
   const correctAmountFn = useServerFn(updateImportItemAmount);
+  const updateInstallmentsFn = useServerFn(updateImportItemInstallments);
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["import-batch", id],
@@ -58,6 +59,8 @@ function BatchDetail() {
   const [ignoreReason, setIgnoreReason] = useState<Record<string, string>>({});
   const [amountDraft, setAmountDraft] = useState<Record<string, string>>({});
   const [amountReason, setAmountReason] = useState<Record<string, string>>({});
+  const [instDraft, setInstDraft] = useState<Record<string, string>>({});
+  const [instReason, setInstReason] = useState<Record<string, string>>({});
 
   const mMatch = useMutation({
     mutationFn: (v: { item_id: string; employee_id: string | null }) =>
@@ -76,6 +79,15 @@ function BatchDetail() {
       correctAmountFn({ data: v }),
     onSuccess: () => {
       toast.success("Valor atualizado.");
+      qc.invalidateQueries({ queryKey: ["import-batch", id] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const mInstallments = useMutation({
+    mutationFn: (v: { item_id: string; installment_count_override: number | null; reason: string }) =>
+      updateInstallmentsFn({ data: v }),
+    onSuccess: () => {
+      toast.success("Parcelas atualizadas.");
       qc.invalidateQueries({ queryKey: ["import-batch", id] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -235,8 +247,8 @@ function BatchDetail() {
               <TableHead>Nome no PDF</TableHead>
               <TableHead>Colaborador associado</TableHead>
               <TableHead>Match</TableHead>
-              <TableHead>Confiança</TableHead>
               <TableHead className="text-right">Valor</TableHead>
+              <TableHead className="text-center">Parcelas</TableHead>
               <TableHead>Ações</TableHead>
             </TableRow></TableHeader>
             <TableBody>
@@ -256,9 +268,11 @@ function BatchDetail() {
                     <TableCell>
                       {matchedEmp ? matchedEmp.full_name : <span className="text-destructive text-xs">—</span>}
                     </TableCell>
-                    <TableCell>{matchStatusBadge(it.match_status)}</TableCell>
-                    <TableCell className="text-xs">
-                      {it.match_confidence != null ? `${Math.round(Number(it.match_confidence) * 100)}%` : "—"}
+                    <TableCell>
+                      {matchStatusBadge(it.match_status)}
+                      {it.match_confidence != null && it.match_status !== "auto_matched" && (
+                        <span className="text-xs text-muted-foreground ml-1">{Math.round(Number(it.match_confidence) * 100)}%</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       {it.corrected_amount_cents != null ? (
@@ -271,9 +285,19 @@ function BatchDetail() {
                         <div>{centsToMoney(it.amount_cents ?? 0)}</div>
                       )}
                     </TableCell>
+                    <TableCell className="text-center">
+                      {it.installment_count_override != null ? (
+                        <div>
+                          <div className="font-semibold">{it.installment_count_override}x</div>
+                          <Badge variant="secondary" className="text-[10px]">Manual</Badge>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">{(it as any).suggested_installment_count ?? "—"}x</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {!isFinal && (
-                        <div className="flex gap-1">
+                        <div className="flex flex-wrap gap-1">
                           <Dialog
                             onOpenChange={(open) => {
                               if (open) {
@@ -349,6 +373,92 @@ function BatchDetail() {
                               </DialogFooter>
                             </DialogContent>
                           </Dialog>
+
+                          <Dialog
+                            onOpenChange={(open) => {
+                              if (open) {
+                                setInstDraft((s) => ({
+                                  ...s,
+                                  [it.id]: String(it.installment_count_override ?? (it as any).suggested_installment_count ?? 1),
+                                }));
+                                setInstReason((s) => ({ ...s, [it.id]: "" }));
+                              }
+                            }}
+                          >
+                            <DialogTrigger asChild>
+                              <Button variant="outline" size="sm">Editar parcelas</Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Editar número de parcelas</DialogTitle>
+                                <DialogDescription>
+                                  Titular no PDF: <b>{it.raw_employee_name}</b> · valor efetivo{" "}
+                                  <b>{centsToMoney(it.corrected_amount_cents ?? it.amount_cents ?? 0)}</b>
+                                </DialogDescription>
+                              </DialogHeader>
+                              <div className="space-y-3">
+                                <div className="text-sm text-muted-foreground">
+                                  Sugestão automática (regra por faixa): <b>{(it as any).suggested_installment_count ?? "—"}x</b>
+                                  {" · "}máximo permitido: {(data as any).max_manual_installments ?? 12}x
+                                </div>
+                                <div>
+                                  <label className="text-sm font-medium">Número de parcelas (manual)</label>
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    max={(data as any).max_manual_installments ?? 12}
+                                    value={instDraft[it.id] ?? ""}
+                                    onChange={(e) => setInstDraft((s) => ({ ...s, [it.id]: e.target.value }))}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-sm font-medium">Motivo (obrigatório)</label>
+                                  <Textarea
+                                    value={instReason[it.id] ?? ""}
+                                    onChange={(e) => setInstReason((s) => ({ ...s, [it.id]: e.target.value }))}
+                                    placeholder="Ex: colaborador pediu para dividir em mais vezes por conta do valor alto."
+                                  />
+                                </div>
+                              </div>
+                              <DialogFooter className="flex-wrap gap-2">
+                                {it.installment_count_override != null && (
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                      const reason = instReason[it.id]?.trim();
+                                      if (!reason || reason.length < 10) {
+                                        toast.error("Informe um motivo (mín. 10 caracteres) para voltar ao automático.");
+                                        return;
+                                      }
+                                      mInstallments.mutate({ item_id: it.id, installment_count_override: null, reason });
+                                    }}
+                                  >
+                                    Voltar para automático
+                                  </Button>
+                                )}
+                                <Button
+                                  onClick={() => {
+                                    const reason = instReason[it.id]?.trim();
+                                    if (!reason || reason.length < 10) {
+                                      toast.error("Informe um motivo (mín. 10 caracteres).");
+                                      return;
+                                    }
+                                    const n = Number(instDraft[it.id]);
+                                    const max = (data as any).max_manual_installments ?? 12;
+                                    if (!Number.isInteger(n) || n < 1 || n > max) {
+                                      toast.error(`Número de parcelas inválido (1 a ${max}).`);
+                                      return;
+                                    }
+                                    mInstallments.mutate({ item_id: it.id, installment_count_override: n, reason });
+                                  }}
+                                  disabled={mInstallments.isPending}
+                                >
+                                  Salvar parcelas
+                                </Button>
+                              </DialogFooter>
+                            </DialogContent>
+                          </Dialog>
+
                           <Dialog>
                             <DialogTrigger asChild>
                               <Button variant="outline" size="sm">Associar</Button>

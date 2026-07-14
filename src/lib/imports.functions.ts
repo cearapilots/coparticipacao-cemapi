@@ -4,7 +4,16 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { normalizeName } from "./calc/name";
 import { parseUnimedText } from "./unimed-parser";
 import { toMonthISO, addMonths } from "./calc/date";
-import { generateInstallmentPlan, type InstallmentThreshold } from "./calc/installments";
+import { generateInstallmentPlan, generateInstallmentPlanWithCount, determineInstallmentRule, type InstallmentThreshold } from "./calc/installments";
+
+const DEFAULT_MAX_MANUAL_INSTALLMENTS = 12;
+
+async function loadMaxManualInstallments(supabase: any): Promise<number> {
+  const { data } = await supabase
+    .from("app_settings").select("setting_value").eq("setting_key", "max_manual_installments").maybeSingle();
+  const v = Number(data?.setting_value);
+  return Number.isInteger(v) && v >= 1 ? v : DEFAULT_MAX_MANUAL_INSTALLMENTS;
+}
 
 type Sb = Parameters<typeof requireSupabaseAuth extends { server: infer S } ? any : any>[0] extends any ? any : any;
 
@@ -280,7 +289,22 @@ export const getImportBatchDetails = createServerFn({ method: "POST" })
     if (!batchRes.data) throw new Error("Lote não encontrado");
     if (itemsRes.error) throw itemsRes.error;
     if (empRes.error) throw empRes.error;
-    return { batch: batchRes.data, items: itemsRes.data ?? [], employees: empRes.data ?? [] };
+
+    // Enriquup: número de parcelas que a regra automática daria (com base no
+    // valor efetivo) para cada item, e o limite de parcelas manuais.
+    const thresholds = await loadThresholds(context.supabase);
+    const maxManualInstallments = await loadMaxManualInstallments(context.supabase);
+    const items = (itemsRes.data ?? []).map((it: any) => ({
+      ...it,
+      suggested_installment_count: determineInstallmentRule(effectiveAmountCents(it), thresholds).installment_count,
+    }));
+
+    return {
+      batch: batchRes.data,
+      items,
+      employees: empRes.data ?? [],
+      max_manual_installments: maxManualInstallments,
+    };
   });
 
 // ------------------- UPDATE ITEM MATCH -------------------
@@ -375,6 +399,79 @@ export const updateImportItemAmount = createServerFn({ method: "POST" })
       entityId: data.item_id,
       beforeSnapshot: before,
       afterSnapshot: { corrected_amount_cents: data.corrected_amount_cents, reason: data.reason },
+    });
+
+    return updated;
+  });
+
+// ------------------- OVERRIDE INSTALLMENT COUNT -------------------
+// O número de parcelas automático continua vindo da regra por faixa. Aqui o
+// RH/admin força um número manual (1..max_manual_installments) para AQUELE
+// item, antes de confirmar. installment_count_override = null volta ao
+// automático. Só o número muda; o valor efetivo é o do item.
+export const updateImportItemInstallments = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z.object({
+      item_id: z.string().uuid(),
+      installment_count_override: z.number().int().min(1).nullable(),
+      reason: z.string().trim().min(10, "Justificativa deve ter ao menos 10 caracteres").max(500),
+    }).parse(d),
+  )
+  .handler(async ({ context, data }) => {
+    const { requireAnyRole } = await import("./authz.server");
+    await requireAnyRole(context.supabase, context.userId, ["admin", "rh"]);
+    const { logAudit } = await import("./audit.server");
+
+    const { data: item, error: itemErr } = await context.supabase
+      .from("import_items")
+      .select("*")
+      .eq("id", data.item_id)
+      .maybeSingle();
+    if (itemErr) throw itemErr;
+    if (!item) throw new Error("Item não encontrado.");
+
+    const { data: batch, error: batchErr } = await context.supabase
+      .from("import_batches")
+      .select("status")
+      .eq("id", item.import_batch_id)
+      .maybeSingle();
+    if (batchErr) throw batchErr;
+    if (batch?.status === "confirmed" || batch?.status === "cancelled") {
+      throw new Error("Não é possível editar parcelas: o lote já foi confirmado ou cancelado.");
+    }
+
+    if (data.installment_count_override !== null) {
+      const max = await loadMaxManualInstallments(context.supabase);
+      if (data.installment_count_override > max) {
+        throw new Error(`Número de parcelas acima do limite permitido (máximo ${max}).`);
+      }
+    }
+
+    const before = {
+      installment_count_override: item.installment_count_override,
+      installment_override_reason: item.installment_override_reason,
+    };
+
+    const { data: updated, error: updErr } = await context.supabase
+      .from("import_items")
+      .update({
+        installment_count_override: data.installment_count_override,
+        installment_override_reason: data.reason,
+        installment_override_by: context.userId,
+        installment_override_at: new Date().toISOString(),
+      })
+      .eq("id", data.item_id)
+      .select("*")
+      .single();
+    if (updErr) throw updErr;
+
+    await logAudit(context.supabase, context.userId, {
+      action: data.installment_count_override === null ? "import_item.installments_clear" : "import_item.installments_override",
+      entityType: "import_item",
+      entityId: data.item_id,
+      beforeSnapshot: before,
+      afterSnapshot: { installment_count_override: data.installment_count_override, reason: data.reason },
     });
 
     return updated;
@@ -558,7 +655,11 @@ export const confirmImportBatch = createServerFn({ method: "POST" })
       const empId = it.matched_employee_id!;
       const amount = effectiveAmountCents(it);
       const lastClosed = await getLastClosedMonth(context.supabase, empId);
-      const plan = generateInstallmentPlan(competence, amount, thresholds);
+      // Usa o número de parcelas manual (override) se informado; senão, a
+      // regra automática por faixa de valor.
+      const plan = it.installment_count_override
+        ? generateInstallmentPlanWithCount(competence, amount, it.installment_count_override, thresholds)
+        : generateInstallmentPlan(competence, amount, thresholds);
       const anyInClosed = lastClosed && plan.items.some((p) => p.dueMonth <= lastClosed);
 
       // 4a) monthly_usage
@@ -620,7 +721,7 @@ export const confirmImportBatch = createServerFn({ method: "POST" })
             total_amount_cents: amount,
             installment_count: plan.installmentCount,
             first_due_month: plan.firstDueMonth,
-            rule_version: "v1",
+            rule_version: it.installment_count_override ? "manual_installments_v1" : "v1",
             status: "active",
           })
           .select("id")

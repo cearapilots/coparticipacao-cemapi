@@ -6,6 +6,7 @@ import {
   determineInstallmentRule,
   splitIntoInstallments,
   generateInstallmentPlan,
+  generateInstallmentPlanWithCount,
   generateOpeningBalancePlan,
   applyMonthlyCap,
   DEFAULT_THRESHOLDS,
@@ -99,6 +100,28 @@ describe("generateInstallmentPlan", () => {
       { installmentNumber: 2, dueMonth: "2025-05-01", amountCents: 10000 },
       { installmentNumber: 3, dueMonth: "2025-06-01", amountCents: 10000 },
     ]);
+  });
+});
+
+describe("generateInstallmentPlanWithCount (override manual de parcelas)", () => {
+  it("força 6 parcelas mesmo quando a regra automática daria 3", () => {
+    const p = generateInstallmentPlanWithCount("2026-08-01", 173160, 6);
+    expect(p.installmentCount).toBe(6);
+    expect(p.items.map((i) => i.amountCents)).toEqual([28860, 28860, 28860, 28860, 28860, 28860]);
+    expect(p.items.reduce((s, i) => s + i.amountCents, 0)).toBe(173160); // soma preservada
+  });
+  it("mantém a política de 1ª parcela da faixa (>R$250 = mesmo mês)", () => {
+    const p = generateInstallmentPlanWithCount("2026-08-01", 173160, 6);
+    expect(p.firstDueMonth).toBe("2026-08-01");
+    expect(p.items[5].dueMonth).toBe("2027-01-01");
+  });
+  it("valor baixo (faixa 1x = mês seguinte) forçado a 2x começa no mês seguinte", () => {
+    const p = generateInstallmentPlanWithCount("2026-08-01", 10000, 2);
+    expect(p.firstDueMonth).toBe("2026-09-01");
+    expect(p.items.map((i) => i.amountCents)).toEqual([5000, 5000]);
+  });
+  it("rejeita contagem <= 0", () => {
+    expect(() => generateInstallmentPlanWithCount("2026-08-01", 10000, 0)).toThrow();
   });
 });
 

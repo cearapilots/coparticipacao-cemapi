@@ -75,6 +75,33 @@ export function generateInstallmentPlan(
 }
 
 /**
+ * Gera plano com número de parcelas FIXO (override manual), mantendo a mesma
+ * política de primeiro vencimento (same_month/next_month) que a regra por faixa
+ * daria para aquele valor. Só o número de parcelas é forçado.
+ */
+export function generateInstallmentPlanWithCount(
+  competenceMonth: MonthISO,
+  amountCents: number,
+  installmentCount: number,
+  thresholds: InstallmentThreshold[] = DEFAULT_THRESHOLDS,
+): InstallmentPlanPreview {
+  if (installmentCount <= 0) throw new Error("installmentCount deve ser >= 1");
+  const rule = determineInstallmentRule(amountCents, thresholds);
+  const firstDueMonth =
+    rule.first_due_policy === "same_month" ? competenceMonth : addMonths(competenceMonth, 1);
+  const amounts = splitIntoInstallments(amountCents, installmentCount);
+  return {
+    installmentCount,
+    firstDueMonth,
+    items: amounts.map((amt, i) => ({
+      installmentNumber: i + 1,
+      dueMonth: addMonths(firstDueMonth, i),
+      amountCents: amt,
+    })),
+  };
+}
+
+/**
  * Aplica o teto mensal.
  * gross = scheduled + carryoverIn
  * toDeduct = min(gross, cap)

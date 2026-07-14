@@ -274,6 +274,10 @@ export type Database = {
           created_at: string
           id: string
           import_batch_id: string
+          installment_count_override: number | null
+          installment_override_at: string | null
+          installment_override_by: string | null
+          installment_override_reason: string | null
           match_confidence: number | null
           match_status: string | null
           matched_employee_id: string | null
@@ -295,6 +299,10 @@ export type Database = {
           created_at?: string
           id?: string
           import_batch_id: string
+          installment_count_override?: number | null
+          installment_override_at?: string | null
+          installment_override_by?: string | null
+          installment_override_reason?: string | null
           match_confidence?: number | null
           match_status?: string | null
           matched_employee_id?: string | null
@@ -316,6 +324,10 @@ export type Database = {
           created_at?: string
           id?: string
           import_batch_id?: string
+          installment_count_override?: number | null
+          installment_override_at?: string | null
+          installment_override_by?: string | null
+          installment_override_reason?: string | null
           match_confidence?: number | null
           match_status?: string | null
           matched_employee_id?: string | null
