@@ -119,7 +119,7 @@ function Dashboard() {
                   {data.deduct_breakdown.map((r: any) => (
                     <TableRow key={r.employee_id}>
                       <TableCell className="font-medium">
-                        {r.full_name}
+                        <Link to="/colaboradores/$id" params={{ id: r.employee_id }} className="hover:underline">{r.full_name}</Link>
                         {r.payroll_code && <span className="text-xs text-muted-foreground ml-1">({r.payroll_code})</span>}
                         {r.has_carryover && <Badge variant="outline" className="ml-2">Carryover</Badge>}
                         {r.capped && <Badge variant="destructive" className="ml-1">Atingiu teto</Badge>}

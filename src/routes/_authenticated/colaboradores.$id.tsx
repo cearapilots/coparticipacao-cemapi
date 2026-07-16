@@ -155,7 +155,7 @@ function EmployeeDetail() {
   const renegMut = useMutation({
     mutationFn: () => doReneg({ data: { employee_id: id, installment_count: renegCount, reason: renegReason.trim() } }),
     onSuccess: (r) => {
-      toast.success(`Saldo re-parcelado em ${r.installment_count}x a partir de ${formatMonthPtBR(r.first_due_month)}.`);
+      toast.success(`Parcelas atualizadas: ${r.installment_count}x a partir de ${formatMonthPtBR(r.first_due_month)}.`);
       setRenegOpen(false);
       setRenegReason("");
       qc.invalidateQueries({ queryKey: ["employee-detail", id] });
@@ -206,7 +206,7 @@ function EmployeeDetail() {
           <TabsTrigger value="resumo">Resumo</TabsTrigger>
           <TabsTrigger value="lancamentos">Lançamentos</TabsTrigger>
           <TabsTrigger value="parcelas">Parcelas</TabsTrigger>
-          <TabsTrigger value="ledger">Ledger mensal</TabsTrigger>
+          <TabsTrigger value="ledger">Extrato mensal</TabsTrigger>
           {isAdmin && <TabsTrigger value="aliases">Aliases ({aliases.length})</TabsTrigger>}
         </TabsList>
 
@@ -338,10 +338,10 @@ function EmployeeDetail() {
                 <div className="flex flex-wrap gap-3 justify-between items-center">
                   <div>
                     <CardTitle className="text-base">Parcelas</CardTitle>
-                    <CardDescription>Re-parcelar redistribui o saldo restante (meses abertos) em outro número de parcelas.</CardDescription>
+                    <CardDescription>Editar as parcelas redistribui o saldo restante (meses abertos) em outro número de parcelas.</CardDescription>
                   </div>
                   <Button variant="outline" onClick={() => { setRenegReason(""); setRenegOpen(true); }}>
-                    Re-parcelar saldo
+                    Editar parcelas
                   </Button>
                 </div>
               </CardHeader>
@@ -381,7 +381,7 @@ function EmployeeDetail() {
           <Card>
             {isAdminOrRh && (
               <CardHeader>
-                <CardTitle className="text-base">Ledger mensal</CardTitle>
+                <CardTitle className="text-base">Extrato mensal</CardTitle>
                 <CardDescription>
                   Em meses abertos você pode ajustar o teto de desconto do mês. A diferença é
                   remanejada para os meses seguintes, respeitando o teto de cada mês.
@@ -480,7 +480,7 @@ function EmployeeDetail() {
       <Dialog open={renegOpen} onOpenChange={setRenegOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Re-parcelar saldo — {employee.full_name}</DialogTitle>
+            <DialogTitle>Editar parcelas — {employee.full_name}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <Alert>
@@ -493,7 +493,7 @@ function EmployeeDetail() {
 
             <div className="text-sm border rounded-md p-3 bg-muted/30 space-y-1">
               <div className="flex justify-between">
-                <span>Saldo em aberto a re-parcelar:</span>
+                <span>Saldo em aberto a redistribuir:</span>
                 <b>{centsToMoney(renegPreviewQuery.data?.remaining_cents ?? 0)}</b>
               </div>
               {renegPreviewQuery.data && (
@@ -551,12 +551,12 @@ function EmployeeDetail() {
             <Button
               onClick={() => {
                 if (renegReason.trim().length < 10) { toast.error("Informe uma justificativa (mín. 10 caracteres)."); return; }
-                if (!renegPreviewQuery.data || renegPreviewQuery.data.remaining_cents <= 0) { toast.error("Não há saldo em aberto para re-parcelar."); return; }
+                if (!renegPreviewQuery.data || renegPreviewQuery.data.remaining_cents <= 0) { toast.error("Não há saldo em aberto para editar."); return; }
                 renegMut.mutate();
               }}
               disabled={renegMut.isPending}
             >
-              {renegMut.isPending ? "Re-parcelando..." : "Confirmar re-parcelamento"}
+              {renegMut.isPending ? "Salvando..." : "Confirmar"}
             </Button>
           </DialogFooter>
         </DialogContent>
