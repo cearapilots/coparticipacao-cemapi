@@ -67,16 +67,16 @@ describe("splitIntoInstallments", () => {
 });
 
 describe("generateInstallmentPlan", () => {
-  it("R$ 0,00: 1 parcela vazia no mês seguinte", () => {
+  it("R$ 0,00: 1 parcela vazia no próprio mês", () => {
     const p = generateInstallmentPlan("2025-04-01", 0);
     expect(p.installmentCount).toBe(1);
     expect(p.items[0].amountCents).toBe(0);
-    expect(p.firstDueMonth).toBe("2025-05-01");
+    expect(p.firstDueMonth).toBe("2025-04-01");
   });
-  it("R$ 150,00 → 1 parcela no mês seguinte", () => {
+  it("R$ 150,00 → 1 parcela no próprio mês", () => {
     const p = generateInstallmentPlan("2025-04-01", 15000);
     expect(p.installmentCount).toBe(1);
-    expect(p.firstDueMonth).toBe("2025-05-01");
+    expect(p.firstDueMonth).toBe("2025-04-01");
     expect(p.items[0].amountCents).toBe(15000);
   });
   it("R$ 150,01 → 2 parcelas no próprio mês", () => {
@@ -115,9 +115,9 @@ describe("generateInstallmentPlanWithCount (override manual de parcelas)", () =>
     expect(p.firstDueMonth).toBe("2026-08-01");
     expect(p.items[5].dueMonth).toBe("2027-01-01");
   });
-  it("valor baixo (faixa 1x = mês seguinte) forçado a 2x começa no mês seguinte", () => {
+  it("valor baixo forçado a 2x começa no próprio mês", () => {
     const p = generateInstallmentPlanWithCount("2026-08-01", 10000, 2);
-    expect(p.firstDueMonth).toBe("2026-09-01");
+    expect(p.firstDueMonth).toBe("2026-08-01");
     expect(p.items.map((i) => i.amountCents)).toEqual([5000, 5000]);
   });
   it("rejeita contagem <= 0", () => {

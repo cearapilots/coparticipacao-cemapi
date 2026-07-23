@@ -18,7 +18,7 @@ export interface InstallmentPlanPreview {
 }
 
 export const DEFAULT_THRESHOLDS: InstallmentThreshold[] = [
-  { min_cents: 0, max_cents: 15000, installment_count: 1, first_due_policy: "next_month" },
+  { min_cents: 0, max_cents: 15000, installment_count: 1, first_due_policy: "same_month" },
   { min_cents: 15001, max_cents: 25000, installment_count: 2, first_due_policy: "same_month" },
   { min_cents: 25001, max_cents: null, installment_count: 3, first_due_policy: "same_month" },
 ];
